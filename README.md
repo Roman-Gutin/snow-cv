@@ -6,7 +6,11 @@ Snow CV is a fast path from raw camera footage to structured Snowflake data. It 
 
 ## Why It Matters
 
-Most CV projects stall between "we have a model" and "we have answers in a dashboard." Snow CV closes that gap by wiring together detection, tracking, zone logic, Snowflake ingestion, and analytics into one repeatable workflow. You bring a video and a business question. The toolkit handles the rest: zone configuration, container deployment, table creation, and query patterns.
+CV projects fail for predictable reasons. The abstractions are unclear — teams blur the line between detection, tracking, and business logic until everything is coupled. Labeling is expensive and slow. Training custom models takes months, often doesn't generalize, and locks you into a maintenance cycle. Most teams bite off more than they can chew and ship nothing.
+
+Snow CV sidesteps this entirely. Instead of training custom models, it pairs open-source models that already work (YOLOv8 for detection, ByteTrack for tracking, Florence-2 for scene understanding) with an agent that reasons about your video and your use case together. The agent looks at your footage, identifies the zones that matter, wires up the event logic, and deploys the pipeline — all in one session. The models are off the shelf. The intelligence is in the orchestration.
+
+Over time, this repo will catalog which open-source models work best for which tasks. Customers won't need to shop for the best model — the toolkit will already know.
 
 ## How to Onboard Your Use Case
 
@@ -107,6 +111,18 @@ The SDK supports multiple cameras per store with cross-camera person tracking:
 - `MultiFeedManager` matches exits with entrances within a configurable time window
 - `JOURNEY_ID` propagates through events, enabling cross-camera wait time calculation
 - SQL views (`CROSS_FEED_JOURNEYS`, `JOURNEY_WAIT_TIMES`) handle both single and multi-camera gracefully
+
+## Models Used and Why
+
+Snow CV uses open-source models chosen for the best tradeoff between accuracy, speed, and zero labeling cost. As the repo grows, this catalog will expand — the goal is that customers never need to evaluate models themselves.
+
+| Model | Task | Why This One |
+|-------|------|-------------|
+| **YOLOv8n-seg** | Person detection + segmentation | Nano variant runs on a single GPU at real-time speeds. Segmentation masks give precise boundaries for zone containment, not just bounding boxes. Pre-trained on COCO — no custom labels needed. |
+| **ByteTrack** | Multi-object tracking | Assigns persistent IDs across frames so you can track a specific person from entrance to service counter. Works on top of any detector's output with no additional training. Handles occlusion and re-identification well in fixed-camera scenarios. |
+| **Florence-2** | Scene understanding / zone detection | The agent uses Florence-2 to look at a reference frame and identify semantic regions (where's the counter? where do people queue?). This replaces manual zone annotation entirely — the agent reasons about the scene visually. |
+
+**Design principle:** No model in this stack requires custom training or labeled data. Detection and tracking use pre-trained weights. Scene understanding is handled by the agent at onboarding time. If a future use case needs a specialized model (e.g., action recognition, anomaly detection), it gets added to this table with the same bar: open-source, pre-trained, no labeling required.
 
 ## Prerequisites
 
