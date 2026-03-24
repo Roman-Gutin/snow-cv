@@ -64,41 +64,11 @@ For SQL setup, edit the `USE DATABASE` / `USE SCHEMA` lines at the top of `sql/s
 
 ## Known Use Cases
 
-| Domain | Use Case | Description |
-|--------|----------|-------------|
-| Retail | [Customer Lines and Abandonment](#retail-customer-lines-and-abandonment) | Measure customer wait times, detect queue abandonment, track staffing gaps at service counters |
+| Domain | Use Case | Status |
+|--------|----------|--------|
+| Retail | [Customer Lines and Abandonment](docs/use-cases/retail-queue-abandonment.md) | Shipped |
 
-*This repo will grow with more use cases over time.*
-
----
-
-### Retail: Customer Lines and Abandonment
-
-The first use case built on Snow CV. Given footage of a retail store with a queue area and service counter, the pipeline:
-
-- Detects every person in frame (YOLOv8n-seg)
-- Tracks them persistently across frames (ByteTrack)
-- Fires events when they enter the store, join a queue, reach the service counter, or leave without being served
-- Computes per-person wait times, abandonment rates, and staffing gap duration
-- Supports multi-camera setups where a person walks from one camera's view to another (cross-camera journey correlation via `JOURNEY_ID`)
-
-**Events generated:**
-
-| Event | Meaning |
-|-------|---------|
-| `entered_store` | Person first detected in entrance zone |
-| `queue_entered` | Person moved into the queue zone |
-| `service_started` | Person moved from queue to service zone |
-| `service_ended` | Person left the service zone |
-| `abandoned` | Person left queue without being served |
-| `employee_arrived` | Staff detected in employee zone |
-| `employee_left` | Staff left employee zone |
-| `counter_unstaffed_start` | No employee at counter while customers present |
-| `counter_unstaffed_end` | Employee returned to counter |
-
-**Example configs:** `examples/configs/synthetic_retail_queue.json`, `examples/configs/multi_camera_example.json`
-
-**SQL queries:** `sql/analytics.sql`, `sql/key_questions.sql`
+*This repo will grow with more use cases over time. See [Contributing](#contributing) to add yours.*
 
 ---
 
