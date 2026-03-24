@@ -1,0 +1,36 @@
+# Multi-camera SPCS job spec template
+#
+# Uses STORE_CONFIG_PATH to load a JSON/YAML config file that defines
+# multiple feeds (cameras), their zones, and cross-feed links.
+#
+# The config file should be uploaded to the RAW_VIDEO stage:
+#   PUT file://configs/my_store_config.json @MYDB.MYSCHEMA.RAW_VIDEO/configs
+#
+# The container mounts the stage and reads the config at runtime.
+# Each feed in the config is processed sequentially.
+#
+# See examples/configs/multi_camera_example.json for the expected format.
+
+spec:
+  containers:
+    - name: yolo-tracker-analyzer
+      image: /MYDB/MYSCHEMA/IMAGES/yolo-tracker-analyzer:latest
+      env:
+        SNOWFLAKE_WAREHOUSE: MYWAREHOUSE
+        # Path to the multi-feed config file (mounted from stage)
+        STORE_CONFIG_PATH: '/mnt/raw_video/configs/store_config.json'
+        # Optional: override segment-parallel processing
+        # SEGMENT_ID: ''
+        # START_SEC: '0'
+        # END_SEC: '0'
+      resources:
+        requests:
+          nvidia.com/gpu: 1
+        limits:
+          nvidia.com/gpu: 1
+      volumeMounts:
+        - name: stage-raw
+          mountPath: /mnt/raw_video
+  volumes:
+    - name: stage-raw
+      source: "@MYDB.MYSCHEMA.RAW_VIDEO"

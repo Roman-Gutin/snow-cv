@@ -1,0 +1,44 @@
+{
+  "store_id": "my_store_01",
+  "feed_name": "main",
+  "video_path": "synthetic_retail_queue.mp4",
+  "sample_fps": 2,
+  "confidence_threshold": 0.3,
+  "zones": {
+    "employee": [
+      [0.05, 0.15],
+      [0.22, 0.15],
+      [0.22, 0.65],
+      [0.05, 0.65]
+    ],
+    "service": [
+      [0.22, 0.25],
+      [0.40, 0.25],
+      [0.40, 0.95],
+      [0.22, 0.95]
+    ],
+    "queue": [
+      [0.40, 0.10],
+      [0.72, 0.10],
+      [0.72, 0.95],
+      [0.40, 0.95]
+    ],
+    "entrance": [
+      [0.72, 0.05],
+      [0.98, 0.05],
+      [0.98, 0.98],
+      [0.72, 0.98]
+    ]
+  },
+  "counter_region": [
+    [0.02, 0.55],
+    [0.38, 0.55],
+    [0.38, 0.98],
+    [0.02, 0.98]
+  ],
+  "database": "SNOW_CV_DB",
+  "schema": "SNOW_CV_SCHEMA",
+  "warehouse": "SNOW_CV_WH",
+  "raw_video_stage": "@SNOW_CV_DB.SNOW_CV_SCHEMA.RAW_VIDEO",
+  "results_stage": "@SNOW_CV_DB.SNOW_CV_SCHEMA.RAW_VIDEO/results"
+}

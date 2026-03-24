@@ -1,0 +1,15 @@
+# Backend server dependencies
+flask>=3.0
+flask-cors>=4.0
+av>=12.0
+numpy>=1.26
+Pillow>=10.0
+
+# YOLO + tracking (downloads model on first run)
+ultralytics>=8.1
+lap>=0.4
+
+# PyTorch CPU (for local dev — SPCS container uses CUDA)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.1
+torchvision>=0.16

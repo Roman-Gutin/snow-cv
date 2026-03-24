@@ -1,0 +1,44 @@
+{
+  "store_id": "my_store_multi_cam",
+  "feeds": [
+    {
+      "name": "lobby",
+      "video_path": "lobby_cam.mp4",
+      "sample_fps": 2,
+      "confidence_threshold": 0.3,
+      "zones": {
+        "entrance": [[0.70, 0.05], [0.98, 0.05], [0.98, 0.95], [0.70, 0.95]],
+        "queue":    [[0.20, 0.10], [0.70, 0.10], [0.70, 0.95], [0.20, 0.95]],
+        "employee": [[0.02, 0.20], [0.20, 0.20], [0.20, 0.60], [0.02, 0.60]]
+      },
+      "counter_region": [[0.02, 0.60], [0.30, 0.60], [0.30, 0.95], [0.02, 0.95]]
+    },
+    {
+      "name": "store_floor",
+      "video_path": "store_floor_cam.mp4",
+      "sample_fps": 2,
+      "confidence_threshold": 0.3,
+      "zones": {
+        "entrance": [[0.00, 0.05], [0.15, 0.05], [0.15, 0.95], [0.00, 0.95]],
+        "service":  [[0.15, 0.30], [0.50, 0.30], [0.50, 0.95], [0.15, 0.95]],
+        "employee": [[0.50, 0.15], [0.75, 0.15], [0.75, 0.65], [0.50, 0.65]],
+        "queue":    [[0.15, 0.05], [0.50, 0.05], [0.50, 0.30], [0.15, 0.30]]
+      },
+      "counter_region": [[0.15, 0.65], [0.75, 0.65], [0.75, 0.95], [0.15, 0.95]]
+    }
+  ],
+  "feed_links": [
+    {
+      "from_feed": "lobby",
+      "from_zone": "entrance",
+      "to_feed": "store_floor",
+      "to_zone": "entrance",
+      "max_delay_sec": 10.0
+    }
+  ],
+  "database": "SNOW_CV_DB",
+  "schema": "SNOW_CV_SCHEMA",
+  "warehouse": "SNOW_CV_WH",
+  "raw_video_stage": "@SNOW_CV_DB.SNOW_CV_SCHEMA.RAW_VIDEO",
+  "results_stage": "@SNOW_CV_DB.SNOW_CV_SCHEMA.RAW_VIDEO/results"
+}

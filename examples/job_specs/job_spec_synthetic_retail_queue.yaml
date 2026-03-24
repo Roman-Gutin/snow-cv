@@ -1,0 +1,27 @@
+spec:
+  containers:
+    - name: yolo-tracker-analyzer
+      image: /MYDB/MYSCHEMA/IMAGES/yolo-tracker-analyzer:latest
+      env:
+        SNOWFLAKE_WAREHOUSE: MYWAREHOUSE
+        VIDEO_PATH: 'synthetic_retail_queue.mp4'
+        STORE_ID: 'my_store_01'
+        SAMPLE_FPS: '2'
+        # Zone polygons — normalized 0-1 coordinates as JSON arrays
+        # Generated from reference frame analysis of synthetic_retail_queue.mp4
+        EMPLOYEE_ZONE: '[[0.05,0.15],[0.22,0.15],[0.22,0.65],[0.05,0.65]]'
+        SERVICE_ZONE: '[[0.22,0.25],[0.40,0.25],[0.40,0.95],[0.22,0.95]]'
+        QUEUE_ZONE: '[[0.40,0.10],[0.72,0.10],[0.72,0.95],[0.40,0.95]]'
+        ENTRANCE_ZONE: '[[0.72,0.05],[0.98,0.05],[0.98,0.98],[0.72,0.98]]'
+        COUNTER_REGION: '[[0.02,0.55],[0.38,0.55],[0.38,0.98],[0.02,0.98]]'
+      resources:
+        requests:
+          nvidia.com/gpu: 1
+        limits:
+          nvidia.com/gpu: 1
+      volumeMounts:
+        - name: stage-raw
+          mountPath: /mnt/raw_video
+  volumes:
+    - name: stage-raw
+      source: "@MYDB.MYSCHEMA.RAW_VIDEO"

@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Node
+node_modules/
+.vite/
+
+# Model weights (download at runtime)
+*.pt
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Validation output (generated)
+validation_output/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Secrets / env
+.env
+.env.local

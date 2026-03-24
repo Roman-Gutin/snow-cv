@@ -1,0 +1,28 @@
+# Example store configuration for a single-camera retail store.
+#
+# Copy this file and customize zones for your camera angle.
+# Use the visualizer studio (React app) to visually adjust zones,
+# then paste the coordinates here.
+
+store_id: store_001
+
+# Single camera (simplest case — no multi-feed)
+feeds:
+  - name: main
+    video_path: store_001_12h.mp4
+    zones:
+      employee: [[0.02, 0.15], [0.28, 0.15], [0.28, 0.55], [0.02, 0.55]]
+      service:  [[0.28, 0.35], [0.46, 0.35], [0.46, 0.95], [0.28, 0.95]]
+      queue:    [[0.46, 0.15], [0.75, 0.15], [0.75, 0.95], [0.46, 0.95]]
+      entrance: [[0.75, 0.15], [0.98, 0.15], [0.98, 0.95], [0.75, 0.95]]
+    counter_region: [[0.03, 0.55], [0.35, 0.55], [0.35, 0.95], [0.03, 0.95]]
+    sample_fps: 1
+    confidence_threshold: 0.3
+
+# Optional: path to custom event rules (default: built-in rules)
+# event_rules_path: event_rules.yaml
+
+# Snowflake infrastructure
+database: SNOW_CV_DB
+schema: SNOW_CV_SCHEMA
+warehouse: SNOW_CV_WH

@@ -1,0 +1,49 @@
+# Default event rules for retail surveillance pipeline.
+# These match the built-in behavior of the original analyze_frames.py.
+#
+# Edit this file to customize what events your pipeline detects.
+# Rule types:
+#   zone_transition - fires when a person moves between zones
+#   track_appeared  - fires when a new person is first detected
+#   track_lost      - fires when a person disappears after grace period
+#   cross_feed      - fires on multi-camera handoff (requires feed_links in config)
+#
+# Built-in events (always active regardless of rules):
+#   entered_store, pre_existing, exited_store
+#   queue_entered, queue_exited
+#   service_started, service_ended
+#   employee_arrived, employee_left
+#   abandoned, unserviced
+#   counter_unstaffed_start, counter_unstaffed_end
+#
+# Add custom rules below to extend the built-in set:
+
+rules: []
+
+# Example custom rules (uncomment to activate):
+#
+# - name: long_queue_alert
+#   trigger: zone_transition
+#   to_zones: [in_queue]
+#   # This fires for every queue entry. Pair with a SQL query on
+#   # PERSON_DETECTIONS to count concurrent queue occupants.
+#
+# - name: vip_area_entered
+#   trigger: zone_transition
+#   to_zones: [vip]
+#   from_zones: [queue, entrance]
+#
+# - name: customer_left_without_buying
+#   trigger: track_lost
+#   conditions:
+#     visited_any: [queue, at_entrance]
+#     not_visited: [service]
+#     observed_entry: true
+#
+# - name: waiting_room_to_store
+#   trigger: cross_feed
+#   from_feed: waiting_room
+#   from_zone: exit_door
+#   to_feed: store_interior
+#   to_zone: entrance
+#   max_delay_sec: 10
