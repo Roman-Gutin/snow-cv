@@ -456,15 +456,16 @@ def auto_zones():
         import json as _json
         with open(config_path) as f:
             config = _json.load(f)
+        counter_val = config.get("counter") or config.get("counter_region")
         result = {
             "zones": config.get("zones", {}),
-            "counter": config.get("counter"),
+            "counter": counter_val,
             "detected": list(config.get("zones", {}).keys()),
             "method": "config",
         }
-        if config.get("counter"):
+        if counter_val:
             result["detected"].append("counter")
-            _last_auto_counter = config["counter"]
+            _last_auto_counter = counter_val
         # Add reference frame
         filepath = RAW_VIDEO_DIR / filename
         if filepath.exists():
