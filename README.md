@@ -8,7 +8,7 @@ Snow CV is a fast path from raw camera footage to structured Snowflake data. It 
 
 CV projects fail for predictable reasons. The abstractions are unclear — teams blur the line between detection, tracking, and business logic until everything is coupled. Labeling is expensive and slow. Training custom models takes months, often doesn't generalize, and locks you into a maintenance cycle. Most teams bite off more than they can chew and ship nothing.
 
-Snow CV sidesteps this entirely. Instead of training custom models, it pairs open-source models that already work (YOLOv8 for detection, ByteTrack for tracking, Florence-2 for scene understanding) with an agent that reasons about your video and your use case together. The agent looks at your footage, identifies the zones that matter, wires up the event logic, and deploys the pipeline — all in one session. The models are off the shelf. The intelligence is in the orchestration.
+Snow CV sidesteps this entirely. Instead of training custom models, it pairs open-source models that already work (YOLOv8 for detection, ByteTrack for tracking) with a coding agent that reasons about your video and your use case together. The agent looks at your footage, identifies the zones that matter, wires up the event logic, and deploys the pipeline — all in one session. The models are off the shelf. The intelligence is in the orchestration.
 
 Over time, this repo will catalog which open-source models work best for which tasks. Customers won't need to shop for the best model — the toolkit will already know.
 
