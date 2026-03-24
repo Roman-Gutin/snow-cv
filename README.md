@@ -1,44 +1,45 @@
-# snow-cv — Computer Vision on Snowflake
+# Snow CV — Computer Vision on Snowflake
 
-Turn any store camera feed into structured Snowflake data: who entered, who waited, who got served, who left without service. Built as a reusable toolkit with Cortex Code skills for rapid onboarding of increasingly complex computer vision workloads.
+## What Is It
 
-## What It Does
+Snow CV is a fast path from raw camera footage to structured Snowflake data. It combines Cortex Code skills, a Python SDK, GPU containers on SPCS, and pre-built SQL analytics so you can ship a computer vision use case in a single session — not weeks.
 
-A Cortex Code skill looks at a frame from your video, identifies store zones (counter, queue, entrance, etc.), and generates everything needed to run a YOLO+ByteTrack pipeline on Snowflake SPCS. You get a React preview app, SPCS container deployment, and SQL queries against the resulting event data.
+## Why It Matters
 
-## Prerequisites
+Most CV projects stall between "we have a model" and "we have answers in a dashboard." Snow CV closes that gap by wiring together detection, tracking, zone logic, Snowflake ingestion, and analytics into one repeatable workflow. You bring a video and a business question. The toolkit handles the rest: zone configuration, container deployment, table creation, and query patterns.
 
-- Python 3.11+
-- Node 18+
-- Snowflake account with SPCS enabled (GPU compute pool)
-- [Cortex Code CLI](https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code)
+## How to Onboard Your Use Case
 
-## Quick Start
+### 1. Drop your video
+
+Place your `.mp4` file in the `videos/` folder.
+
+### 2. Open Cortex Code in this repo
+
+```bash
+cortex
+```
+
+### 3. Tell the agent what you want to measure
 
 ```
-1. Drop your .mp4 into the videos/ folder
-2. Open Cortex Code in THIS folder:  cortex
-3. Say:  onboard videos/my_store.mp4 for retail surveillance
+onboard videos/my_store.mp4 for customer wait time analysis
 ```
 
-That's it. The skill handles everything else.
+The skill runs this workflow automatically:
 
-## Onboarding Workflow
-
-When you say "onboard" the skill runs this workflow:
-
-1. **Intake** — asks what you want to measure (wait times, abandonment, staffing gaps)
+1. **Intake** — asks what you want to measure (wait times, abandonment, staffing gaps, etc.)
 2. **Frame extraction** — pulls a reference frame from your video
 3. **Vision analysis** — the agent looks at the frame and identifies zone polygons (entrance, queue, service area, employee area, counter)
-4. **Zone push** — POSTs zones to the local Flask server, saves config to `configs/`
-5. **React preview** — you see zones overlaid on video frames with real-time detection, role classification, and events
+4. **Config generation** — saves zone config to `configs/`
+5. **React preview** — zones overlaid on video frames with real-time detection and events
 6. **Job spec generation** — creates a `job_spec.yaml` with your zones baked in as env vars
 7. **SPCS deployment** — runs `EXECUTE JOB SERVICE` on Snowflake GPU compute
-8. **SQL verification** — runs key business queries against the event data
+8. **SQL verification** — runs business queries against the resulting event data
 
-## Customization
+### 4. Set your Snowflake coordinates
 
-Before deploying, set your Snowflake coordinates in one of two ways:
+Before deploying, configure your target database in one of two ways:
 
 **Option A: Config file** (recommended for multi-camera)
 ```json
@@ -46,8 +47,7 @@ Before deploying, set your Snowflake coordinates in one of two ways:
   "store_id": "my_store",
   "database": "MY_DB",
   "schema": "MY_SCHEMA",
-  "warehouse": "MY_WH",
-  ...
+  "warehouse": "MY_WH"
 }
 ```
 
@@ -58,6 +58,46 @@ SNOWFLAKE_DATABASE, SNOWFLAKE_SCHEMA, SNOWFLAKE_WAREHOUSE
 
 For SQL setup, edit the `USE DATABASE` / `USE SCHEMA` lines at the top of `sql/setup.sql` before running.
 
+## Known Use Cases
+
+| Domain | Use Case | Description |
+|--------|----------|-------------|
+| Retail | [Customer Lines and Abandonment](#retail-customer-lines-and-abandonment) | Measure customer wait times, detect queue abandonment, track staffing gaps at service counters |
+
+*This repo will grow with more use cases over time.*
+
+---
+
+### Retail: Customer Lines and Abandonment
+
+The first use case built on Snow CV. Given footage of a retail store with a queue area and service counter, the pipeline:
+
+- Detects every person in frame (YOLOv8n-seg)
+- Tracks them persistently across frames (ByteTrack)
+- Fires events when they enter the store, join a queue, reach the service counter, or leave without being served
+- Computes per-person wait times, abandonment rates, and staffing gap duration
+- Supports multi-camera setups where a person walks from one camera's view to another (cross-camera journey correlation via `JOURNEY_ID`)
+
+**Events generated:**
+
+| Event | Meaning |
+|-------|---------|
+| `entered_store` | Person first detected in entrance zone |
+| `queue_entered` | Person moved into the queue zone |
+| `service_started` | Person moved from queue to service zone |
+| `service_ended` | Person left the service zone |
+| `abandoned` | Person left queue without being served |
+| `employee_arrived` | Staff detected in employee zone |
+| `employee_left` | Staff left employee zone |
+| `counter_unstaffed_start` | No employee at counter while customers present |
+| `counter_unstaffed_end` | Employee returned to counter |
+
+**Example configs:** `examples/configs/synthetic_retail_queue.json`, `examples/configs/multi_camera_example.json`
+
+**SQL queries:** `sql/analytics.sql`, `sql/key_questions.sql`
+
+---
+
 ## Multi-Camera Support
 
 The SDK supports multiple cameras per store with cross-camera person tracking:
@@ -67,6 +107,13 @@ The SDK supports multiple cameras per store with cross-camera person tracking:
 - `MultiFeedManager` matches exits with entrances within a configurable time window
 - `JOURNEY_ID` propagates through events, enabling cross-camera wait time calculation
 - SQL views (`CROSS_FEED_JOURNEYS`, `JOURNEY_WAIT_TIMES`) handle both single and multi-camera gracefully
+
+## Prerequisites
+
+- Python 3.11+
+- Node 18+
+- Snowflake account with SPCS enabled (GPU compute pool)
+- [Cortex Code CLI](https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code)
 
 ## Manual Setup (without the skill)
 
@@ -94,7 +141,7 @@ Before running the SPCS job, create the tables and views:
 
 This creates:
 - `PERSON_DETECTIONS` — per-frame bounding boxes, roles, positions
-- `PERSON_EVENTS` — zone transition events (entered_store, queue_entered, service_started, etc.)
+- `PERSON_EVENTS` — zone transition events
 - `VIDEO_METADATA` — video processing summary with zone config
 - `INFERENCE_TRACES` — debug traces from the pipeline
 - `VIDEO_ANALYTICS` — view for single-feed KPIs
@@ -119,8 +166,7 @@ snow-cv/
 ├── container/
 │   ├── Dockerfile         ← SPCS container (python:3.11 + CUDA + YOLO)
 │   ├── analyze_frames.py  ← SPCS entrypoint (supports single + multi-feed)
-│   ├── job_spec_template.yaml            ← Single-camera template
-│   └── job_spec_multi_camera_template.yaml ← Multi-camera template
+│   └── job_spec_template.yaml
 ├── sql/
 │   ├── setup.sql          ← CREATE TABLE/VIEW DDL
 │   ├── analytics.sql      ← Pre-built analytics query patterns
@@ -128,33 +174,10 @@ snow-cv/
 ├── backend/
 │   └── server.py          ← Flask API for the React preview app
 ├── frontend/              ← React 19 + Vite preview app
-├── configs/               ← Generated zone configs (per deployment)
-├── videos/                ← Drop your .mp4 files here
 ├── examples/              ← Reference configs and job specs
+├── videos/                ← Drop your .mp4 files here
 └── validate_pipeline.py   ← Local end-to-end validation script
 ```
-
-## Events Generated
-
-| Event | Meaning |
-|-------|---------|
-| `entered_store` | Person first detected in entrance zone |
-| `pre_existing` | Person already in frame when video starts |
-| `queue_entered` | Person moved into the queue zone |
-| `service_started` | Person moved from queue to service zone |
-| `service_ended` | Person left the service zone |
-| `employee_arrived` | Staff detected in employee zone |
-| `employee_left` | Staff left employee zone |
-| `counter_unstaffed_start` | No employee at counter while customers present |
-| `counter_unstaffed_end` | Employee returned to counter |
-| `abandoned` | Person left queue without being served |
-
-## Skills Used
-
-This toolkit is built around two Cortex Code skills:
-
-- **`retail-zone-setup`** — Camera onboarding: frame extraction, vision-based zone detection, config generation, React preview, SPCS job spec creation
-- **`deploy-to-spcs`** — Container deployment: Docker build, image push, `EXECUTE JOB SERVICE`
 
 ## Container Image
 
@@ -171,3 +194,35 @@ The container:
 4. Runs YOLO + ByteTrack frame-by-frame per feed
 5. Writes detections, events, and metadata to Snowflake tables
 6. Exits (one-shot job pattern)
+
+## Contributing
+
+Want to add a new use case or improve an existing one? Here's how:
+
+### Adding a New Use Case
+
+1. **Fork this repo** and create a branch: `git checkout -b use-case/my-new-case`
+2. **Build your pipeline** using the `retail_vision` SDK as a reference. The core components (detector, tracker, zones, events, output) are reusable across use cases.
+3. **Add example configs** in `examples/configs/` showing the zone layout and parameters for your use case
+4. **Add SQL queries** in `sql/` with the analytics patterns relevant to your use case
+5. **Add a section** to this README under "Known Use Cases" with a link anchor and description
+6. **Include a sample video** in `videos/` (keep it small — under 5MB) or document how to obtain test footage
+7. **Validate locally**: run `python validate_pipeline.py` or create a use-case-specific validation script
+8. **Open a PR** with:
+   - What the use case measures
+   - What zones/events it uses
+   - Sample SQL output
+   - A screenshot or summary from the React preview (optional but helpful)
+
+### Improving the SDK
+
+- Bug fixes and performance improvements to `retail_vision/` are welcome
+- If you add a new event type, update `retail_vision/defaults/event_rules.yaml` and document it
+- If you add a new output writer, follow the `OutputWriter` abstract base class pattern in `output.py`
+- Keep configs genericized — use `SNOW_CV_DB` / `SNOW_CV_SCHEMA` / `SNOW_CV_WH` as placeholder defaults
+
+### Style
+
+- Keep it simple. The goal is rapid onboarding, not framework perfection.
+- Every use case should be deployable in a single Cortex Code session.
+- Configs over code — zone definitions, event rules, and Snowflake coordinates belong in config files, not hardcoded.
