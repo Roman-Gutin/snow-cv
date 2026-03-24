@@ -120,9 +120,9 @@ Snow CV uses open-source models chosen for the best tradeoff between accuracy, s
 |-------|------|-------------|
 | **YOLOv8n-seg** | Person detection + segmentation | Nano variant runs on a single GPU at real-time speeds. Segmentation masks give precise boundaries for zone containment, not just bounding boxes. Pre-trained on COCO — no custom labels needed. |
 | **ByteTrack** | Multi-object tracking | Assigns persistent IDs across frames so you can track a specific person from entrance to service counter. Works on top of any detector's output with no additional training. Handles occlusion and re-identification well in fixed-camera scenarios. |
-| **Florence-2** | Scene understanding / zone detection | The agent uses Florence-2 to look at a reference frame and identify semantic regions (where's the counter? where do people queue?). This replaces manual zone annotation entirely — the agent reasons about the scene visually. |
+| **Cortex Code (multimodal agent)** | Scene understanding / zone detection | The agent itself looks at a reference frame from your video and reasons about the spatial layout — where the counter is, where people queue, where the entrance is. This replaces manual zone annotation entirely. No vision model we tested (including Florence-2) could reliably identify business-relevant zones from a single frame. The coding agent's native visual reasoning handles it. |
 
-**Design principle:** No model in this stack requires custom training or labeled data. Detection and tracking use pre-trained weights. Scene understanding is handled by the agent at onboarding time. If a future use case needs a specialized model (e.g., action recognition, anomaly detection), it gets added to this table with the same bar: open-source, pre-trained, no labeling required.
+**Design principle:** No model in this stack requires custom training or labeled data. Detection and tracking use pre-trained weights. Scene understanding is handled by the agent's own visual reasoning at onboarding time — not a separate vision model. If a future use case needs a specialized model (e.g., action recognition, anomaly detection), it gets added to this table with the same bar: open-source, pre-trained, no labeling required.
 
 ## Prerequisites
 
