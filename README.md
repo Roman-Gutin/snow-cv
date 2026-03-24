@@ -12,55 +12,29 @@ Snow CV sidesteps this entirely. Instead of training custom models, it pairs ope
 
 Over time, this repo will catalog which open-source models work best for which tasks. Customers won't need to shop for the best model — the toolkit will already know.
 
-## How to Onboard Your Use Case
+## Get Started
 
 ### 1. Drop your video
 
-Place your `.mp4` file in the `videos/` folder.
+Place your `.mp4` in the `videos/` folder.
 
-### 2. Open Cortex Code in this repo
+### 2. Tell the agent what you see
 
-```bash
-cortex
-```
-
-### 3. Tell the agent what you want to measure
+Open Cortex Code in this repo and describe your use case. Here's the prompt that shipped the retail queue use case:
 
 ```
-onboard videos/my_store.mp4 for customer wait time analysis
+I have a video of a retail store at videos/synthetic_retail_queue.mp4.
+Customers walk in, wait in a queue, and get served at a counter.
+I want to measure wait times, detect when people abandon the line,
+and know when the counter is unstaffed. Help me build a pipeline
+to get this data into Snowflake.
 ```
 
-The skill runs this workflow automatically:
+That's it. The agent takes it from there — it looks at your footage, identifies the zones, builds the config, previews the detections locally, deploys to SPCS, and runs the SQL to verify.
 
-1. **Intake** — asks what you want to measure (wait times, abandonment, staffing gaps, etc.)
-2. **Frame extraction** — pulls a reference frame from your video
-3. **Vision analysis** — the agent looks at the frame and identifies zone polygons (entrance, queue, service area, employee area, counter)
-4. **Config generation** — saves zone config to `configs/`
-5. **React preview** — zones overlaid on video frames with real-time detection and events
-6. **Job spec generation** — creates a `job_spec.yaml` with your zones baked in as env vars
-7. **SPCS deployment** — runs `EXECUTE JOB SERVICE` on Snowflake GPU compute
-8. **SQL verification** — runs business queries against the resulting event data
+### 3. Verify in the React app
 
-### 4. Set your Snowflake coordinates
-
-Before deploying, configure your target database in one of two ways:
-
-**Option A: Config file** (recommended for multi-camera)
-```json
-{
-  "store_id": "my_store",
-  "database": "MY_DB",
-  "schema": "MY_SCHEMA",
-  "warehouse": "MY_WH"
-}
-```
-
-**Option B: Environment variables** (SPCS single-camera)
-```
-SNOWFLAKE_DATABASE, SNOWFLAKE_SCHEMA, SNOWFLAKE_WAREHOUSE
-```
-
-For SQL setup, edit the `USE DATABASE` / `USE SCHEMA` lines at the top of `sql/setup.sql` before running.
+The agent starts a local preview app where you can see zones overlaid on your video with real-time detection, role classification, and events. This is your visual confirmation that the pipeline is generating the right data before it hits Snowflake.
 
 ## Known Use Cases
 
@@ -68,19 +42,23 @@ For SQL setup, edit the `USE DATABASE` / `USE SCHEMA` lines at the top of `sql/s
 |--------|----------|--------|
 | Retail | [Customer Lines and Abandonment](docs/use-cases/retail-queue-abandonment.md) | Shipped |
 
-*This repo will grow with more use cases over time. See [Contributing](#contributing) to add yours.*
+*See [Contributing](#contributing) to add yours.*
 
----
+## What Cortex Code Skills Do For You
 
-## Multi-Camera Support
+The heavy lifting happens through two skills that the agent invokes automatically. You don't call them directly — you describe your use case and the agent picks the right skill.
 
-The SDK supports multiple cameras per store with cross-camera person tracking:
+**`retail-zone-setup`** — Camera onboarding
 
-- Define multiple feeds in a single config file (see `examples/configs/multi_camera_example.json`)
-- `feed_links` declare which exit zone on camera A correlates with which entrance zone on camera B
-- `MultiFeedManager` matches exits with entrances within a configurable time window
-- `JOURNEY_ID` propagates through events, enabling cross-camera wait time calculation
-- SQL views (`CROSS_FEED_JOURNEYS`, `JOURNEY_WAIT_TIMES`) handle both single and multi-camera gracefully
+The agent extracts a reference frame from your video, looks at it, and identifies the spatial layout: where the entrance is, where people queue, where the service counter is, where employees stand. It generates a zone config, pushes it to a local Flask server, and opens the React preview so you can confirm the zones are right. Then it builds a job spec with your zones baked in as environment variables.
+
+This is the step that replaces weeks of manual annotation. The agent's visual reasoning identifies business-relevant zones from a single frame — something no off-the-shelf vision model (including Florence-2) could do reliably.
+
+**`deploy-to-spcs`** — Container deployment
+
+Once the zones are confirmed, the agent builds the Docker image, pushes it to your Snowflake image repository, and runs `EXECUTE JOB SERVICE` on a GPU compute pool. The container connects via OAuth, downloads your video from a Snowflake stage, runs YOLO + ByteTrack frame-by-frame, and writes structured detections and events to Snowflake tables. One-shot job — it runs and exits.
+
+**The pattern:** You describe what you want to measure. The agent reasons about the video, picks the right models and zones, configures the pipeline, deploys it, and verifies the SQL output. The skills encode the operational knowledge so you don't have to.
 
 ## Models Used and Why
 
@@ -94,45 +72,15 @@ Snow CV uses open-source models chosen for the best tradeoff between accuracy, s
 
 **Design principle:** No model in this stack requires custom training or labeled data. Detection and tracking use pre-trained weights. Scene understanding is handled by the agent's own visual reasoning at onboarding time — not a separate vision model. If a future use case needs a specialized model (e.g., action recognition, anomaly detection), it gets added to this table with the same bar: open-source, pre-trained, no labeling required.
 
-## Prerequisites
+## Multi-Camera Support
 
-- Python 3.11+
-- Node 18+
-- Snowflake account with SPCS enabled (GPU compute pool)
-- [Cortex Code CLI](https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code)
+The SDK supports multiple cameras per store with cross-camera person tracking:
 
-## Manual Setup (without the skill)
-
-```bash
-# Terminal 1: Backend
-pip install -r requirements.txt
-python backend/server.py
-# Starts on http://localhost:5001
-
-# Terminal 2: Frontend
-cd frontend
-npm install
-npm run dev
-# Opens on http://localhost:5173 (proxies /api to :5001)
-```
-
-## Snowflake Setup
-
-Before running the SPCS job, create the tables and views:
-
-```sql
--- Edit the database/schema at the top of setup.sql first
-@sql/setup.sql
-```
-
-This creates:
-- `PERSON_DETECTIONS` — per-frame bounding boxes, roles, positions
-- `PERSON_EVENTS` — zone transition events
-- `VIDEO_METADATA` — video processing summary with zone config
-- `INFERENCE_TRACES` — debug traces from the pipeline
-- `VIDEO_ANALYTICS` — view for single-feed KPIs
-- `CROSS_FEED_JOURNEYS` — view for multi-camera handoff correlation
-- `JOURNEY_WAIT_TIMES` — view for journey-aware wait times
+- Define multiple feeds in a single config file (see `examples/configs/multi_camera_example.json`)
+- `feed_links` declare which exit zone on camera A correlates with which entrance zone on camera B
+- `MultiFeedManager` matches exits with entrances within a configurable time window
+- `JOURNEY_ID` propagates through events, enabling cross-camera wait time calculation
+- SQL views (`CROSS_FEED_JOURNEYS`, `JOURNEY_WAIT_TIMES`) handle both single and multi-camera gracefully
 
 ## Architecture
 
@@ -161,25 +109,17 @@ snow-cv/
 │   └── server.py          ← Flask API for the React preview app
 ├── frontend/              ← React 19 + Vite preview app
 ├── examples/              ← Reference configs and job specs
+├── docs/use-cases/        ← Detailed write-ups per use case
 ├── videos/                ← Drop your .mp4 files here
 └── validate_pipeline.py   ← Local end-to-end validation script
 ```
 
-## Container Image
+## Prerequisites
 
-```bash
-cd container
-docker build -t yolo-tracker-analyzer .
-# Tag and push to your Snowflake image repo
-```
-
-The container:
-1. Connects to Snowflake via OAuth (automatic in SPCS)
-2. Loads config from file (`STORE_CONFIG_PATH`) or env vars
-3. Downloads video(s) from `@RAW_VIDEO` stage
-4. Runs YOLO + ByteTrack frame-by-frame per feed
-5. Writes detections, events, and metadata to Snowflake tables
-6. Exits (one-shot job pattern)
+- Python 3.11+
+- Node 18+
+- Snowflake account with SPCS enabled (GPU compute pool)
+- [Cortex Code CLI](https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code)
 
 ## Contributing
 
@@ -191,7 +131,7 @@ Want to add a new use case or improve an existing one? Here's how:
 2. **Build your pipeline** using the `retail_vision` SDK as a reference. The core components (detector, tracker, zones, events, output) are reusable across use cases.
 3. **Add example configs** in `examples/configs/` showing the zone layout and parameters for your use case
 4. **Add SQL queries** in `sql/` with the analytics patterns relevant to your use case
-5. **Add a section** to this README under "Known Use Cases" with a link anchor and description
+5. **Create a use case doc** in `docs/use-cases/` and add a row to the Known Use Cases table in this README
 6. **Include a sample video** in `videos/` (keep it small — under 5MB) or document how to obtain test footage
 7. **Validate locally**: run `python validate_pipeline.py` or create a use-case-specific validation script
 8. **Open a PR** with:
