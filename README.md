@@ -2,13 +2,13 @@
 
 ## What Is It
 
-Snow CV is the starting point for shipping computer vision use cases on Snowflake compute. Drop a video, describe what you want to measure, and a Cortex Code skill handles the rest — zone identification, event logic, GPU container deployment, and SQL analytics. One session, not weeks.
+Snow CV is a get-started kit for building computer vision use cases on Snowflake compute. Drop a video, describe what you want to measure, and a Cortex Code skill handles the rest — zone identification, event logic, GPU container deployment, and SQL analytics.
 
-The repo ships a pluggable Python SDK, a GPU container for SPCS, pre-built SQL analytics, and a skill prompt that orchestrates the full onboarding flow. Two use cases are built-in (retail queue analytics and parking lot confusion detection). Adding a new one means writing one strategy class and one config file.
+The repo includes a pluggable Python SDK, a GPU container for SPCS, pre-built SQL analytics, and a skill prompt that orchestrates the full onboarding flow. Two use cases are included (retail queue analytics and parking lot confusion detection). Adding a new one means writing one strategy class and one config file.
 
 ## Why It Matters
 
-CV projects fail because teams couple detection, tracking, and business logic into one tangled codebase. Labeling is expensive. Custom model training takes months, rarely generalizes, and locks you into maintenance. Most teams ship nothing.
+CV projects fail because teams couple detection, tracking, and business logic into one tangled codebase. Labeling is expensive. Custom model training takes months, rarely generalizes, and locks you into maintenance.
 
 Snow CV decouples the stack:
 
@@ -122,10 +122,10 @@ The skill prompt that drives this flow is in `skills/onboard.md`. The agent foll
 
 ## Known Use Cases
 
-| Domain | Use Case | Strategy | Status |
-|--------|----------|----------|--------|
-| Retail | [Customer Lines and Abandonment](docs/use-cases/retail-queue-abandonment.md) | `RetailStrategy` | Shipped |
-| Parking | [Ticket Machine Confusion Detection](docs/use-cases/parking-ticket-confusion.md) | `ParkingStrategy` | Shipped |
+| Domain | Use Case | Strategy |
+|--------|----------|----------|
+| Retail | [Customer Lines and Abandonment](docs/use-cases/retail-queue-abandonment.md) | `RetailStrategy` |
+| Parking | [Ticket Machine Confusion Detection](docs/use-cases/parking-ticket-confusion.md) | `ParkingStrategy` |
 
 ## How a Use Case Works
 
