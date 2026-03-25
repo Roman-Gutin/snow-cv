@@ -58,9 +58,19 @@ class FeedConfig:
         )
 
 
-# Example zones — NOT silently applied. Used only when customer explicitly
-# opts out of vision detection or as documented examples.
-# For production, zones should come from auto_detect_zones() (Florence-2).
+# Backward-compat re-exports. These now live in use_cases/retail/strategy.py.
+# Import them lazily so core SDK doesn't depend on use_cases at module level.
+def _get_example_zones():
+    from use_cases.retail.strategy import EXAMPLE_ZONES
+    return EXAMPLE_ZONES
+
+def _get_example_counter():
+    from use_cases.retail.strategy import EXAMPLE_COUNTER_REGION
+    return EXAMPLE_COUNTER_REGION
+
+# Kept as module-level names for backward compat (lazy on first access is not
+# worth the complexity — just import directly). Code that needs these should
+# import from use_cases/retail/strategy.py instead.
 EXAMPLE_ZONES = {
     "employee": [[0.02, 0.15], [0.28, 0.15], [0.28, 0.55], [0.02, 0.55]],
     "service":  [[0.28, 0.35], [0.46, 0.35], [0.46, 0.95], [0.28, 0.95]],
@@ -74,7 +84,7 @@ EXAMPLE_COUNTER_REGION = [[0.03, 0.55], [0.35, 0.55], [0.35, 0.95], [0.03, 0.95]
 class StoreConfig:
     """Top-level config for a store/site deployment."""
     store_id: str
-    use_case: str = "retail"  # strategy name — controls zone/event defaults
+    use_case: str = "generic"  # strategy name — controls zone/event defaults
     feeds: list[FeedConfig] = field(default_factory=list)
     feed_links: list[FeedLink] = field(default_factory=list)
     event_rules_path: Optional[str] = None
@@ -132,7 +142,7 @@ class StoreConfig:
 
         return cls(
             store_id=d.get("store_id", "unknown"),
-            use_case=d.get("use_case", "retail"),
+            use_case=d.get("use_case", "generic"),
             feeds=feeds,
             feed_links=links,
             event_rules_path=d.get("event_rules_path"),
@@ -148,33 +158,36 @@ class StoreConfig:
     def from_env(cls) -> StoreConfig:
         """Build config from SPCS container environment variables.
 
-        Reads: STORE_ID, VIDEO_PATH, FEED_NAME, zone env vars (EMPLOYEE_ZONE, etc.),
-        SNOWFLAKE_WAREHOUSE, EVENT_RULES_PATH, plus multi-feed FEED_LINKS JSON.
+        Preferred: STORE_CONFIG_PATH points to a JSON config file.
+        Legacy: STORE_ID, VIDEO_PATH, FEED_NAME, ZONES_JSON, COUNTER_REGION,
+        SNOWFLAKE_WAREHOUSE, EVENT_RULES_PATH, USE_CASE, FEED_LINKS.
+
+        No longer hardcodes retail-specific zone env vars.
         """
+        # Preferred path: load from config file
+        config_path = os.environ.get("STORE_CONFIG_PATH", "")
+        if config_path and os.path.exists(config_path):
+            with open(config_path) as f:
+                d = json.load(f)
+            return cls.from_dict(d)
+
         store_id = os.environ.get("STORE_ID", "unknown")
         video_path = os.environ.get("VIDEO_PATH", "")
         feed_name = os.environ.get("FEED_NAME", "main")
-        warehouse = os.environ.get("SNOWFLAKE_WAREHOUSE", "SNOW_CV_DB")
+        warehouse = os.environ.get("SNOWFLAKE_WAREHOUSE", "SNOW_CV_WH")
+        use_case = os.environ.get("USE_CASE", "generic")
 
+        # Zones from a single JSON env var (generic — works for any use case)
         zones = {}
-        for zone_name, env_var, default in [
-            ("employee", "EMPLOYEE_ZONE", EXAMPLE_ZONES["employee"]),
-            ("service", "SERVICE_ZONE", EXAMPLE_ZONES["service"]),
-            ("queue", "QUEUE_ZONE", EXAMPLE_ZONES["queue"]),
-            ("entrance", "ENTRANCE_ZONE", EXAMPLE_ZONES["entrance"]),
-        ]:
-            raw = os.environ.get(env_var, "")
-            if raw:
-                try:
-                    zones[zone_name] = json.loads(raw)
-                except json.JSONDecodeError:
-                    log.warning("Invalid JSON in %s, using default", env_var)
-                    zones[zone_name] = default
-            else:
-                zones[zone_name] = default
+        zones_raw = os.environ.get("ZONES_JSON", "")
+        if zones_raw:
+            try:
+                zones = json.loads(zones_raw)
+            except json.JSONDecodeError:
+                log.warning("Invalid JSON in ZONES_JSON, starting with empty zones")
 
+        counter = None
         counter_raw = os.environ.get("COUNTER_REGION", "")
-        counter = EXAMPLE_COUNTER_REGION
         if counter_raw:
             try:
                 counter = json.loads(counter_raw)
@@ -200,6 +213,7 @@ class StoreConfig:
 
         return cls(
             store_id=store_id,
+            use_case=use_case,
             feeds=[feed],
             feed_links=links,
             event_rules_path=os.environ.get("EVENT_RULES_PATH"),

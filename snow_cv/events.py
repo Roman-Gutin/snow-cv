@@ -87,8 +87,8 @@ class EventEngine:
     @property
     def strategy(self) -> UseCaseStrategy:
         if self._strategy is None:
-            from snow_cv.strategies import RetailStrategy
-            self._strategy = RetailStrategy()
+            from snow_cv.strategies import GenericStrategy
+            self._strategy = GenericStrategy()
         return self._strategy
 
     @strategy.setter

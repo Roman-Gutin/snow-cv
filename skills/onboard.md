@@ -2,51 +2,77 @@
 
 ## When to Use
 
-Use this skill when a user wants to onboard a new computer vision use case. They will provide:
-1. A video file (or path to one)
-2. A description of what they want to measure
+Use this skill when a user wants to onboard a new video for computer vision analysis.
+They will provide a video file (or path to one). They may or may not know what they
+want to measure yet — that's what this flow is designed to discover.
+
+## Core Principle
+
+**Video first, conversation second, code last.**
+
+Do NOT assume a use case. Do NOT default to retail zones. The onboarding flow is a
+conversation that starts with "what do I see?" and "what do you want to know?" —
+then builds the right config from the answers.
 
 ## Onboarding Flow
-
-Execute these steps in order. Each step must complete before moving to the next.
 
 ### Step 1: Video Setup
 
 - Copy/verify the video is in `videos/` directory
-- Extract a reference frame using the SDK:
+- Extract a reference frame:
   ```python
   from snow_cv.pipeline import Pipeline
   frame = Pipeline._extract_reference_frame("videos/<name>.mp4")
   ```
 - **Look at the reference frame** using your vision capability
 
-### Step 2: Zone Identification
+### Step 2: Scene Description (MANDATORY — do not skip)
 
-Based on the video frame AND the user's use case description, identify the zones that matter.
+Describe what you see to the user. Be specific:
+- What kind of location is this? (store, street, warehouse, parking lot, office, etc.)
+- What's happening? (people walking, vehicles moving, queuing, etc.)
+- What are the distinct spatial areas visible?
+- How many people/objects are present?
 
-DO NOT hardcode to retail zones. Reason about what spatial regions are relevant:
-- For **retail**: entrance, queue, service, employee areas
-- For **parking**: approach lane, ticket machine, exit vehicle area, gate
-- For **warehouse**: loading dock, staging area, restricted zone, walkway
-- For **any new use case**: reason about what regions drive the business metrics the user cares about
+Then **ask the user**:
 
-Generate normalized polygon coordinates (0-1 range) for each zone.
+> "Here's what I see in your video: [description]. What do you want to measure or
+> understand from this footage?"
 
-### Step 3: Check Strategy Registry
+**Wait for their answer.** Do not proceed until they tell you what matters to them.
 
-```python
-from snow_cv.strategies import get_strategy, _STRATEGY_REGISTRY
-print(list(_STRATEGY_REGISTRY.keys()))  # See what's available
-```
+### Step 3: Use Case Selection
 
-- If a matching strategy exists (e.g., "retail", "parking"), use it
-- If not, you need to **create a new strategy class** in `snow_cv/strategies.py`:
-  1. Subclass `UseCaseStrategy`
-  2. Implement `classify_role()`, `eval_appeared()`, `eval_transition()`, `eval_lost()`
-  3. Call `register_strategy("new_name", NewStrategy)`
-  4. The zone_priority and role_map should reflect the zones you identified in Step 2
+Based on the user's answer, determine the right approach:
 
-### Step 4: Generate Config
+1. **Check existing strategies:**
+   ```python
+   from snow_cv.strategies import _STRATEGY_REGISTRY
+   print(list(_STRATEGY_REGISTRY.keys()))
+   ```
+
+2. **If an existing strategy matches** (e.g., user wants queue abandonment → retail,
+   user wants ticket machine confusion → parking):
+   - Confirm with user: "This sounds like our [X] use case. Want to use it?"
+   - If yes, use that strategy's expected zones and event logic
+
+3. **If no existing strategy matches** (net new use case):
+   - Use `"generic"` as the use_case
+   - Name zones based on what the user described (e.g., "loading_dock", "break_room",
+     "crosswalk", "waiting_area" — whatever fits their scene and goals)
+   - The generic strategy emits `track_appeared`, `zone_changed`, `track_lost` events
+   - Optionally create a new strategy class if the user needs custom event logic
+
+### Step 4: Zone Identification
+
+Based on Steps 2-3, identify zones that serve the user's stated metrics:
+
+- **For existing use cases:** use that strategy's expected zone names
+- **For net new:** name zones based on the scene and user's goals
+- Generate normalized polygon coordinates (0-1 range) for each zone
+- Explain each zone to the user and confirm the layout makes sense
+
+### Step 5: Generate Config
 
 Write a JSON config file to `configs/<video_stem>.json`:
 
@@ -62,14 +88,14 @@ Write a JSON config file to `configs/<video_stem>.json`:
     ...
   },
   "zone_priority": ["<highest_priority_zone>", ...],
-  "role_map": {"<zone_name>": "<role_name>", ...},
-  "<use_case>": {
-    ... use-case-specific thresholds ...
-  }
+  "role_map": {"<zone_name>": "<role_name>", ...}
 }
 ```
 
-### Step 5: Push Config to Backend
+For existing use cases, include strategy-specific config blocks
+(e.g., `"parking": { "confusion_dwell_threshold_sec": 30 }`).
+
+### Step 6: Push Config to Backend
 
 ```python
 import requests, json
@@ -83,14 +109,14 @@ requests.post("http://localhost:5001/api/set-zones", json={
 })
 ```
 
-### Step 6: Validate Pipeline Locally
+### Step 7: Validate Pipeline Locally
 
-Run the pipeline against the video with the generated config:
+Run the pipeline against the video:
 
 ```python
-from snow_cv import StoreConfig, Pipeline
+from snow_cv import StoreConfig, Pipeline, CsvOutput
 config = StoreConfig.from_dict(json.load(open("configs/<video_stem>.json")))
-pipeline = Pipeline(config=config)
+pipeline = Pipeline(config=config, output=CsvOutput("validation_output"))
 summary = pipeline.run("videos/<video_stem>.mp4")
 print(f"Detections: {summary['total_detections']}")
 print(f"Events: {summary['total_events']}")
@@ -102,7 +128,7 @@ Check:
 - Are the expected events firing?
 - Do the event counts make sense for the video content?
 
-### Step 7: Start React Preview
+### Step 8: Start React Preview
 
 Start backend + frontend so the user can visually verify:
 
@@ -111,25 +137,26 @@ cd backend && python3 server.py &
 cd frontend && npm run dev &
 ```
 
-Tell the user to open the frontend URL. The walkthrough tab will auto-load the video with zones, role colors, and events.
+Tell the user to open the frontend URL. The walkthrough tab will auto-load the
+video with zones, role colors, and events.
 
-### Step 8: Generate SQL Analytics
+### Step 9: Generate SQL Analytics (if deploying to Snowflake)
 
 Create a SQL view specific to this use case in `sql/<use_case>_analytics.sql`:
 
-- The view should query `PERSON_DETECTIONS` and `PERSON_EVENTS` (these tables are use-case-generic)
-- KPIs should match the business questions from the user's original description
+- The view should query `PERSON_DETECTIONS` and `PERSON_EVENTS`
+- KPIs should match the business questions from the user's stated goals (Step 2)
 - Include 5-10 example queries that answer the user's business questions
 
-### Step 9: Deploy to SPCS
+### Step 10: Deploy to SPCS (if requested)
 
-Upload the config file to the Snowflake stage alongside the video:
+Upload the config file to the Snowflake stage:
 
 ```sql
 PUT file://configs/<video_stem>.json @RAW_VIDEO/configs AUTO_COMPRESS=FALSE OVERWRITE=TRUE;
 ```
 
-Then use the `deploy-to-spcs` skill with the job spec referencing `STORE_CONFIG_PATH`:
+Then deploy with the job spec referencing `STORE_CONFIG_PATH`:
 
 ```yaml
 env:
@@ -137,20 +164,11 @@ env:
   SNOWFLAKE_WAREHOUSE: SNOW_CV_WH
 ```
 
-### Step 10: Verify SQL Output
-
-After the container job completes, run the analytics view queries to verify business insights:
-
-```sql
-SELECT * FROM <USE_CASE>_ANALYTICS LIMIT 10;
-```
-
-Report the results to the user with a summary of what was detected and the key metrics.
-
 ## Key Principles
 
-1. **Config over code** — zone definitions, role maps, and thresholds go in JSON config files, not hardcoded
-2. **Strategy pattern** — use-case-specific behavior lives in strategy classes, not if/elif chains
-3. **Generic data layer** — PERSON_DETECTIONS and PERSON_EVENTS accept any role/event strings; only the SQL views are use-case-specific
-4. **Visual verification** — always show the user the React preview before deploying to SPCS
-5. **One session** — the entire flow from video to SQL insights should complete in a single session
+1. **Ask before assuming** — never pick a use case or zone layout without asking the user
+2. **Generic is the default** — if no existing strategy fits, use generic. Don't force-fit.
+3. **Config over code** — zone definitions, role maps, and thresholds go in JSON config
+4. **Strategy pattern** — only create a new strategy class if the user needs custom events
+5. **Visual verification** — always show the React preview before deploying
+6. **One session** — the entire flow from video to insights should complete in a single session

@@ -3,10 +3,13 @@ Zone geometry — polygon definitions, point-in-polygon tests, ZoneMap.
 
 Supports:
   - Loading zones from config dict or env vars
-  - Priority-based zone classification (employee > service > queue > entrance)
+  - Priority-based zone classification (configurable per use case)
 
-Zone *detection* is handled externally (e.g. the retail-zone-setup skill),
+Zone *detection* is handled externally (e.g. the onboarding skill),
 not in this module.  This file is pure geometry.
+
+No use-case-specific defaults live here. Zone priority and role maps
+are provided by the active strategy or config.
 """
 
 from __future__ import annotations
@@ -31,24 +34,22 @@ def point_in_polygon(x: float, y: float, polygon: list[list[float]]) -> bool:
     return inside
 
 
-# Retail zone classification priority (highest first).
-RETAIL_ZONE_PRIORITY = ["employee", "service", "queue", "entrance"]
+# ---- Backward-compat exports ----
+# These constants are kept so existing code that imports them doesn't break,
+# but they are NOT used as defaults anywhere in the core SDK.
+# Use-case-specific constants now live in use_cases/<name>/strategy.py.
 
-# Retail role mapping: zone name -> display role name
+RETAIL_ZONE_PRIORITY = ["employee", "service", "queue", "entrance"]
 RETAIL_ROLE_MAP = {
     "employee": "employee",
     "service": "customer_being_served",
     "queue": "in_queue",
     "entrance": "at_entrance",
 }
-
-# Backward compat aliases
 DEFAULT_ZONE_PRIORITY = RETAIL_ZONE_PRIORITY
 DEFAULT_ROLE_MAP = RETAIL_ROLE_MAP
 
-# --- Parking lot use case ---
 PARKING_ZONE_PRIORITY = ["exit_vehicle", "ticket_machine", "gate_area", "approach_lane"]
-
 PARKING_ROLE_MAP = {
     "exit_vehicle": "exited_vehicle",
     "ticket_machine": "at_machine",
@@ -64,13 +65,15 @@ class ZoneMap:
     Args:
         zones: {zone_name: [[x,y], ...]} polygon dict (normalized 0-1)
         counter_region: polygon for the counter fixture (optional)
-        priority: zone names in classification priority order (first match wins)
-        role_map: zone_name -> role string mapping
+        priority: zone names in classification priority order (first match wins).
+                  Defaults to empty — the strategy or config must provide this.
+        role_map: zone_name -> role string mapping.
+                  Defaults to empty — zone names are used as-is.
     """
     zones: dict[str, list[list[float]]] = field(default_factory=dict)
     counter_region: list[list[float]] | None = None
-    priority: list[str] = field(default_factory=lambda: list(DEFAULT_ZONE_PRIORITY))
-    role_map: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_ROLE_MAP))
+    priority: list[str] = field(default_factory=list)
+    role_map: dict[str, str] = field(default_factory=dict)
 
     def classify(self, cx: float, cy: float) -> str:
         """Classify a centroid into a role based on zone priority.
@@ -103,6 +106,6 @@ class ZoneMap:
         return cls(
             zones=d.get("zones", {}),
             counter_region=d.get("counter_region"),
-            priority=d.get("priority", list(DEFAULT_ZONE_PRIORITY)),
-            role_map=d.get("role_map", dict(DEFAULT_ROLE_MAP)),
+            priority=d.get("priority", []),
+            role_map=d.get("role_map", {}),
         )

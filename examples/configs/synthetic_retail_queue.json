@@ -1,5 +1,6 @@
 {
   "store_id": "my_store_01",
+  "use_case": "retail",
   "feed_name": "main",
   "video_path": "synthetic_retail_queue.mp4",
   "sample_fps": 2,

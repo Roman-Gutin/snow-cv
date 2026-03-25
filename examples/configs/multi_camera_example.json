@@ -1,5 +1,6 @@
 {
   "store_id": "my_store_multi_cam",
+  "use_case": "retail",
   "feeds": [
     {
       "name": "lobby",

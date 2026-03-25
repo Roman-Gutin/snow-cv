@@ -112,7 +112,7 @@ def _build_event_engine(use_case="retail", config=None):
 
 def _resolve_use_case(filename):
     """Look up cached use_case and strategy config for a filename."""
-    uc = _use_case_cache.get(filename, "retail")
+    uc = _use_case_cache.get(filename, "generic")
     scfg = _strategy_config_cache.get(filename, {})
     return uc, scfg
 
@@ -477,7 +477,7 @@ def auto_zones():
             _last_auto_counter = counter_val
 
         # Cache use_case and strategy config for downstream endpoints
-        uc = config.get("use_case", "retail")
+        uc = config.get("use_case", "generic")
         _use_case_cache[filename] = uc
         _strategy_config_cache[filename] = {
             "strategy_config": config.get("strategy_config", config.get("parking", {})),
