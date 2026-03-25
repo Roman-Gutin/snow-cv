@@ -16,11 +16,13 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Any
 
-from retail_vision.zones import (
+from snow_cv.zones import (
     ZoneMap,
     PARKING_ZONE_PRIORITY,
     PARKING_ROLE_MAP,
 )
+
+import os
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +47,29 @@ class UseCaseStrategy(ABC):
 
     def role_map(self) -> dict[str, str] | None:
         """Return default zone->role mapping, or None for ZoneMap defaults."""
+        return None
+
+    def special_roles(self) -> dict[str, str]:
+        """Declare roles with special pipeline semantics.
+
+        Supported keys:
+          - "staff_role": pipeline tracks whether this role is present per frame
+          - "queue_role": pipeline computes queue position ordering for this role
+
+        Return {} if your use case has no staff/queue concept.
+        """
+        return {}
+
+    def default_zones(self) -> dict[str, list[list[float]]] | None:
+        """Return fallback zones when none are configured, or None to require config."""
+        return None
+
+    def default_counter(self) -> list[list[float]] | None:
+        """Return fallback counter region, or None."""
+        return None
+
+    def default_event_rules_path(self) -> str | None:
+        """Return path to default YAML event rules for this strategy, or None."""
         return None
 
     # --- Role classification ---
@@ -87,9 +112,11 @@ class UseCaseStrategy(ABC):
         """Events when a track disappears."""
 
     def eval_frame_level(self, current_tracks: dict, ts: float,
-                         has_employee: bool, queue_count: int,
                          engine_state: dict) -> list[tuple[str, int, dict]]:
         """Per-frame events not tied to a single track transition.
+
+        Strategies compute any needed aggregates (staff presence, queue count)
+        from current_tracks directly.
 
         Returns list of (event_type, track_id, details).
         Default: no frame-level events.
@@ -109,6 +136,21 @@ class RetailStrategy(UseCaseStrategy):
     """Retail store: entrance direction, queue, service, employee zones."""
 
     name = "retail"
+
+    def special_roles(self):
+        return {"staff_role": "employee", "queue_role": "in_queue"}
+
+    def default_zones(self):
+        from snow_cv.config import EXAMPLE_ZONES
+        return dict(EXAMPLE_ZONES)
+
+    def default_counter(self):
+        from snow_cv.config import EXAMPLE_COUNTER_REGION
+        return list(EXAMPLE_COUNTER_REGION)
+
+    def default_event_rules_path(self):
+        path = os.path.join(os.path.dirname(__file__), "defaults", "event_rules.yaml")
+        return path if os.path.exists(path) else None
 
     def classify_role(self, zone, track_state, tid, cx):
         if zone == "entrance":
@@ -203,10 +245,14 @@ class RetailStrategy(UseCaseStrategy):
 
         return events
 
-    def eval_frame_level(self, current_tracks, ts, has_employee, queue_count, engine_state):
+    def eval_frame_level(self, current_tracks, ts, engine_state):
         """Detect counter-unstaffed-while-waiting periods."""
         events = []
         unstaffed_since = engine_state.get("_unstaffed_since")
+
+        # Compute aggregates from current_tracks
+        has_employee = any(t["role"] == "employee" for t in current_tracks.values())
+        queue_count = sum(1 for t in current_tracks.values() if t["role"] == "in_queue")
 
         if not has_employee and queue_count > 0:
             if unstaffed_since is None:
@@ -251,6 +297,10 @@ class ParkingStrategy(UseCaseStrategy):
 
     def role_map(self):
         return dict(PARKING_ROLE_MAP)
+
+    def default_event_rules_path(self):
+        path = os.path.join(os.path.dirname(__file__), "defaults", "parking_event_rules.yaml")
+        return path if os.path.exists(path) else None
 
     def classify_role(self, zone, track_state, tid, cx):
         # Parking uses ZoneMap.classify() which applies priority + role_map.
@@ -355,7 +405,7 @@ class ParkingStrategy(UseCaseStrategy):
 
         return events
 
-    def eval_frame_level(self, current_tracks, ts, has_employee, queue_count, engine_state):
+    def eval_frame_level(self, current_tracks, ts, engine_state):
         """Check dwell time at ticket machine — fires prolonged/confusion."""
         events = []
         dwell_starts = engine_state.get("_machine_dwell_start", {})
@@ -400,9 +450,14 @@ def register_strategy(name: str, cls: type[UseCaseStrategy]):
 def get_strategy(use_case: str, config: dict | None = None) -> UseCaseStrategy:
     """Look up and instantiate a strategy by use_case name.
 
-    Falls back to RetailStrategy for unknown use cases.
+    Raises KeyError if the use_case is not registered.
     """
-    cls = _STRATEGY_REGISTRY.get(use_case, RetailStrategy)
-    if cls is not RetailStrategy and use_case not in _STRATEGY_REGISTRY:
-        log.warning("Unknown use_case '%s', falling back to retail", use_case)
+    cls = _STRATEGY_REGISTRY.get(use_case)
+    if cls is None:
+        available = ", ".join(sorted(_STRATEGY_REGISTRY.keys()))
+        raise KeyError(
+            f"Unknown use_case '{use_case}'. "
+            f"Registered strategies: {available}. "
+            f"Register a new one with register_strategy()."
+        )
     return cls(config)

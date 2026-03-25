@@ -15,8 +15,8 @@ Execute these steps in order. Each step must complete before moving to the next.
 - Copy/verify the video is in `videos/` directory
 - Extract a reference frame using the SDK:
   ```python
-  from retail_vision.pipeline import RetailPipeline
-  frame = RetailPipeline._extract_reference_frame("videos/<name>.mp4")
+  from snow_cv.pipeline import Pipeline
+  frame = Pipeline._extract_reference_frame("videos/<name>.mp4")
   ```
 - **Look at the reference frame** using your vision capability
 
@@ -35,12 +35,12 @@ Generate normalized polygon coordinates (0-1 range) for each zone.
 ### Step 3: Check Strategy Registry
 
 ```python
-from retail_vision.strategies import get_strategy, _STRATEGY_REGISTRY
+from snow_cv.strategies import get_strategy, _STRATEGY_REGISTRY
 print(list(_STRATEGY_REGISTRY.keys()))  # See what's available
 ```
 
 - If a matching strategy exists (e.g., "retail", "parking"), use it
-- If not, you need to **create a new strategy class** in `retail_vision/strategies.py`:
+- If not, you need to **create a new strategy class** in `snow_cv/strategies.py`:
   1. Subclass `UseCaseStrategy`
   2. Implement `classify_role()`, `eval_appeared()`, `eval_transition()`, `eval_lost()`
   3. Call `register_strategy("new_name", NewStrategy)`
@@ -88,9 +88,9 @@ requests.post("http://localhost:5001/api/set-zones", json={
 Run the pipeline against the video with the generated config:
 
 ```python
-from retail_vision import StoreConfig, RetailPipeline
+from snow_cv import StoreConfig, Pipeline
 config = StoreConfig.from_dict(json.load(open("configs/<video_stem>.json")))
-pipeline = RetailPipeline(config=config)
+pipeline = Pipeline(config=config)
 summary = pipeline.run("videos/<video_stem>.mp4")
 print(f"Detections: {summary['total_detections']}")
 print(f"Events: {summary['total_events']}")

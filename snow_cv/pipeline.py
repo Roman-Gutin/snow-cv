@@ -1,5 +1,5 @@
 """
-RetailPipeline — orchestrates detection, tracking, events, and output.
+Pipeline — orchestrates detection, tracking, events, and output.
 
 Wires together all SDK components into a single run() call.
 Supports both local iteration (CsvOutput) and SPCS batch (SnowflakeOutput).
@@ -18,15 +18,15 @@ from collections import Counter
 import av
 import numpy as np
 
-from retail_vision.config import StoreConfig, FeedConfig, EXAMPLE_ZONES, EXAMPLE_COUNTER_REGION
-from retail_vision.zones import ZoneMap
-from retail_vision.detector import PersonDetector, Detection
-from retail_vision.tracker import TrackState
-from retail_vision.events import EventEngine, Event
-from retail_vision.strategies import get_strategy
-from retail_vision.feeds import MultiFeedManager
-from retail_vision.trace import InferenceTracer
-from retail_vision.output import OutputWriter, CsvOutput
+from snow_cv.config import StoreConfig, FeedConfig
+from snow_cv.zones import ZoneMap
+from snow_cv.detector import PersonDetector, Detection
+from snow_cv.tracker import TrackState
+from snow_cv.events import EventEngine, Event
+from snow_cv.strategies import get_strategy
+from snow_cv.feeds import MultiFeedManager
+from snow_cv.trace import InferenceTracer
+from snow_cv.output import OutputWriter, CsvOutput
 
 log = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ def generate_video_id(filename: str, store_id: str = "", segment_id: str = "",
     return hashlib.md5(key.encode()).hexdigest()[:12]
 
 
-class RetailPipeline:
+class Pipeline:
     """Main pipeline: video in → structured event data out.
 
     Args:
@@ -69,7 +69,7 @@ class RetailPipeline:
     ):
         self.config = config or StoreConfig(store_id="default")
         self.strategy = get_strategy(
-            self.config.use_case, self.config.parking)
+            self.config.use_case, self.config.strategy_config)
         self.output = output or CsvOutput()
         self.tracer = tracer or InferenceTracer(
             store_id=self.config.store_id, enabled=True)
@@ -81,15 +81,12 @@ class RetailPipeline:
         if self.config.event_rules_path and os.path.exists(self.config.event_rules_path):
             engine = EventEngine.from_yaml(
                 self.config.event_rules_path, strategy=self.strategy)
-        elif self.config.use_case == "parking":
-            default_path = os.path.join(
-                os.path.dirname(__file__), "defaults", "parking_event_rules.yaml")
-            if os.path.exists(default_path):
+        else:
+            default_path = self.strategy.default_event_rules_path()
+            if default_path and os.path.exists(default_path):
                 engine = EventEngine.from_yaml(default_path, strategy=self.strategy)
             else:
                 engine = EventEngine.default(strategy=self.strategy)
-        else:
-            engine = EventEngine.default(strategy=self.strategy)
         return engine
 
     def _get_detector(self, feed: FeedConfig) -> PersonDetector:
@@ -145,13 +142,17 @@ class RetailPipeline:
             feed = FeedConfig(name="main")
             feed_name = "main"
 
-        # Fall back to example zones if none configured.
-        # Zone detection is handled externally by the retail-zone-setup skill.
+        # Fall back to strategy-provided default zones if none configured.
         if not feed.zones:
-            log.warning("No zones configured — using example zones as fallback. "
-                        "Run the retail-zone-setup skill to define real zones for %s", video_path)
-            feed.zones = dict(EXAMPLE_ZONES)
-            feed.counter_region = list(EXAMPLE_COUNTER_REGION)
+            default_zones = self.strategy.default_zones()
+            if default_zones:
+                log.warning("No zones configured — using strategy defaults for %s. "
+                            "Run the onboarding skill to define real zones.", video_path)
+                feed.zones = default_zones
+                feed.counter_region = feed.counter_region or self.strategy.default_counter()
+            else:
+                log.warning("No zones configured and strategy provides no defaults for %s",
+                            video_path)
 
         # Set up zone map from feed config, with strategy-driven defaults
         priority = feed.zone_priority or self.strategy.zone_priority()
@@ -274,7 +275,10 @@ class RetailPipeline:
 
             # --- Classify and track ---
             current_tids = set()
-            frame_has_employee = False
+            special = self.strategy.special_roles()
+            staff_role = special.get("staff_role")
+            queue_role = special.get("queue_role")
+            frame_has_staff = False
             queue_people = []
             current_tracks = {}
             new_track_count = 0
@@ -320,9 +324,9 @@ class RetailPipeline:
                 track_state.update_centroid(tid, cx, cy)
                 info.prev_role = role
 
-                if role == "employee":
-                    frame_has_employee = True
-                if role == "in_queue":
+                if staff_role and role == staff_role:
+                    frame_has_staff = True
+                if queue_role and role == queue_role:
                     queue_people.append((cx, tid, len(det_rows)))
 
                 det_rows.append((
@@ -376,8 +380,6 @@ class RetailPipeline:
                 timestamp_sec=ts,
                 current_tracks=current_tracks,
                 lost_tracks=lost_tracks,
-                frame_has_employee=frame_has_employee,
-                frame_queue_count=len(queue_people),
                 feed_name=feed_name,
             )
 
@@ -418,9 +420,9 @@ class RetailPipeline:
                 elapsed = time.time() - t0
                 rate = processed / elapsed if elapsed > 0 else 0
                 eta = (total_targets - processed) / rate if rate > 0 else 0
-                log.info("Frame %d/%d @%.0fs: %d people, queue=%d, rate=%.1ffps, ETA=%.0fs",
+                log.info("Frame %d/%d @%.0fs: %d people, rate=%.1ffps, ETA=%.0fs",
                          processed, total_targets, ts, len(current_tids),
-                         len(queue_people), rate, eta)
+                         rate, eta)
 
         container.close()
 

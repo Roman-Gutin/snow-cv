@@ -1,4 +1,4 @@
-"""Local pipeline validation — runs RetailPipeline in parking mode on a gate camera video."""
+"""Local pipeline validation — runs Pipeline in parking mode on a gate camera video."""
 
 import json
 import logging
@@ -8,7 +8,7 @@ import os
 # Add project root to path
 sys.path.insert(0, os.path.dirname(__file__))
 
-from retail_vision import RetailPipeline, StoreConfig, CsvOutput
+from snow_cv import RetailPipeline, StoreConfig, CsvOutput
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
@@ -33,7 +33,7 @@ def main():
     config = StoreConfig.from_dict(cfg)
     print(f"Store ID:  {config.store_id}")
     print(f"Use case:  {config.use_case}")
-    print(f"Parking:   {config.parking}")
+    print(f"Strategy:  {config.strategy_config}")
     print(f"Feeds:     {[f.name for f in config.feeds]}")
     for feed in config.feeds:
         print(f"  Feed '{feed.name}': zones={list(feed.zones.keys())}, "

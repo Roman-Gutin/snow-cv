@@ -150,7 +150,7 @@ video → zones → role map → strategy class → SQL view
 
 ### Adding a New Use Case
 
-1. Write a strategy class in `retail_vision/strategies.py` (~100 lines)
+1. Write a strategy class in `snow_cv/strategies.py` (~100 lines)
 2. Register it: `register_strategy("airport", AirportStrategy)`
 3. Create a config JSON in `configs/` with zone polygons and `"use_case": "airport"`
 4. Create a SQL view in `sql/` for the business queries
@@ -162,7 +162,7 @@ No changes to the pipeline, event engine, container, or deployment. The strategy
 
 ```
 snow-cv/
-├── retail_vision/           ← Core Python SDK
+├── snow_cv/                 ← Core Python SDK
 │   ├── strategies.py        ← USE-CASE LOGIC LIVES HERE
 │   │                          RetailStrategy, ParkingStrategy, ...
 │   │                          register_strategy() to add your own

@@ -44,7 +44,7 @@ The second use case built on Snow CV. Given footage of a parking lot gate area w
 
 ## Strategy
 
-`ParkingStrategy` in `retail_vision/strategies.py`. Key logic:
+`ParkingStrategy` in `snow_cv/strategies.py`. Key logic:
 
 - `classify_role`: zone name → role via role_map (e.g., `ticket_machine` → `at_machine`)
 - `eval_appeared`: arriving as `approaching` → `vehicle_arrived`; arriving as `at_machine` → `machine_interaction_started` + start dwell timer

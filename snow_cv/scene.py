@@ -430,12 +430,12 @@ def validate_zones_with_yolo(
             "confidence": float,
         }
     """
-    from retail_vision.zones import ZoneMap
+    from snow_cv.zones import ZoneMap
 
     zone_map = ZoneMap(zones=zones)
 
     try:
-        from retail_vision.detector import PersonDetector
+        from snow_cv.detector import PersonDetector
         detector = PersonDetector(confidence=0.25)
         detections = detector.detect(image_array)
     except Exception as e:

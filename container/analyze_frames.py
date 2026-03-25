@@ -1,14 +1,14 @@
 """
-YOLO-seg + ByteTrack Retail Video Analyzer (SPCS Container Job)
+YOLO-seg + ByteTrack Video Analyzer (SPCS Container Job)
 
 Thin entrypoint for SPCS containers. All detection, tracking, event, and
-output logic lives in the retail_vision SDK package.
+output logic lives in the snow_cv SDK package.
 
 This file handles only:
   - SPCS Snowflake connection (OAuth token from /snowflake/session/token)
   - Video listing and download from @RAW_VIDEO stage
   - Building SDK config from SPCS environment variables or config file
-  - Delegating to RetailPipeline.run() for each feed
+  - Delegating to Pipeline.run() for each feed
 
 Supports two config modes:
   1. Multi-feed config file (recommended):
@@ -39,8 +39,8 @@ import tempfile
 
 import snowflake.connector
 
-from retail_vision import (
-    StoreConfig, RetailPipeline, SnowflakeOutput, InferenceTracer,
+from snow_cv import (
+    StoreConfig, Pipeline, SnowflakeOutput, InferenceTracer,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -173,7 +173,7 @@ def process_feed(conn, config, feed, segment_id, start_sec, end_sec):
             container_id=os.environ.get("JOB_NAME", segment_id or "local"),
         )
 
-        pipeline = RetailPipeline(
+        pipeline = Pipeline(
             config=config,
             output=output,
             tracer=tracer,
@@ -200,7 +200,7 @@ def process_feed(conn, config, feed, segment_id, start_sec, end_sec):
 
 
 def main():
-    log.info("=== YOLO-seg + ByteTrack Retail Analyzer Starting ===")
+    log.info("=== YOLO-seg + ByteTrack Analyzer Starting ===")
 
     config = load_config()
     conn = get_snowflake_connection()

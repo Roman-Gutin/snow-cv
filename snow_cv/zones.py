@@ -31,17 +31,20 @@ def point_in_polygon(x: float, y: float, polygon: list[list[float]]) -> bool:
     return inside
 
 
-# Default zone classification priority (highest first).
-# Customers can override by providing a custom priority list in config.
-DEFAULT_ZONE_PRIORITY = ["employee", "service", "queue", "entrance"]
+# Retail zone classification priority (highest first).
+RETAIL_ZONE_PRIORITY = ["employee", "service", "queue", "entrance"]
 
-# Role mapping: zone name -> display role name
-DEFAULT_ROLE_MAP = {
+# Retail role mapping: zone name -> display role name
+RETAIL_ROLE_MAP = {
     "employee": "employee",
     "service": "customer_being_served",
     "queue": "in_queue",
     "entrance": "at_entrance",
 }
+
+# Backward compat aliases
+DEFAULT_ZONE_PRIORITY = RETAIL_ZONE_PRIORITY
+DEFAULT_ROLE_MAP = RETAIL_ROLE_MAP
 
 # --- Parking lot use case ---
 PARKING_ZONE_PRIORITY = ["exit_vehicle", "ticket_machine", "gate_area", "approach_lane"]

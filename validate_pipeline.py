@@ -8,7 +8,7 @@ import os
 # Add project root to path
 sys.path.insert(0, os.path.dirname(__file__))
 
-from retail_vision import RetailPipeline, StoreConfig, CsvOutput
+from snow_cv import RetailPipeline, StoreConfig, CsvOutput
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 

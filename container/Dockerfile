@@ -22,7 +22,7 @@ WORKDIR /app
 RUN python -c "from ultralytics import YOLO; YOLO('yolov8n-seg.pt')"
 
 # SDK package (shared with visualizer and local iteration)
-COPY retail_vision/ ./retail_vision/
+COPY snow_cv/ ./snow_cv/
 
 COPY analyze_frames.py .
 

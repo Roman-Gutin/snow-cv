@@ -74,11 +74,11 @@ EXAMPLE_COUNTER_REGION = [[0.03, 0.55], [0.35, 0.55], [0.35, 0.95], [0.03, 0.95]
 class StoreConfig:
     """Top-level config for a store/site deployment."""
     store_id: str
-    use_case: str = "retail"  # "retail" | "parking" — controls zone/event defaults
+    use_case: str = "retail"  # strategy name — controls zone/event defaults
     feeds: list[FeedConfig] = field(default_factory=list)
     feed_links: list[FeedLink] = field(default_factory=list)
     event_rules_path: Optional[str] = None
-    parking: dict = field(default_factory=dict)  # parking-specific thresholds
+    strategy_config: dict = field(default_factory=dict)  # strategy-specific thresholds
 
     # SPCS / infrastructure
     database: str = "SNOW_CV_DB"
@@ -136,7 +136,7 @@ class StoreConfig:
             feeds=feeds,
             feed_links=links,
             event_rules_path=d.get("event_rules_path"),
-            parking=d.get("parking", {}),
+            strategy_config=d.get("strategy_config", d.get("parking", {})),
             database=d.get("database", "SNOW_CV_DB"),
             schema=d.get("schema", "SNOW_CV_SCHEMA"),
             warehouse=d.get("warehouse", "SNOW_CV_WH"),
@@ -231,7 +231,7 @@ class StoreConfig:
         """
         import av
         import numpy as np
-        from retail_vision.config import EXAMPLE_ZONES as _EX_ZONES, EXAMPLE_COUNTER_REGION as _EX_COUNTER
+        from snow_cv.config import EXAMPLE_ZONES as _EX_ZONES, EXAMPLE_COUNTER_REGION as _EX_COUNTER
 
         log.info("Extracting reference frame from %s...", video_path)
         container = av.open(video_path)

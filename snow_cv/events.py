@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from retail_vision.strategies import UseCaseStrategy
+    from snow_cv.strategies import UseCaseStrategy
 
 log = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ class EventEngine:
     Delegates use-case-specific logic to a UseCaseStrategy.
 
     Usage:
-        from retail_vision.strategies import get_strategy
+        from snow_cv.strategies import get_strategy
         strategy = get_strategy("parking", parking_config)
         engine = EventEngine.default(strategy=strategy)
         events = engine.evaluate_frame(...)
@@ -87,7 +87,7 @@ class EventEngine:
     @property
     def strategy(self) -> UseCaseStrategy:
         if self._strategy is None:
-            from retail_vision.strategies import RetailStrategy
+            from snow_cv.strategies import RetailStrategy
             self._strategy = RetailStrategy()
         return self._strategy
 
@@ -128,8 +128,6 @@ class EventEngine:
         timestamp_sec: float,
         current_tracks: dict[int, dict],
         lost_tracks: dict[int, dict],
-        frame_has_employee: bool,
-        frame_queue_count: int,
         feed_name: str = "",
     ) -> list[Event]:
         """Evaluate all rules for one frame.
@@ -205,8 +203,7 @@ class EventEngine:
 
         # Frame-level events (unstaffed detection, dwell tracking, etc.)
         for item in strat.eval_frame_level(
-                current_tracks, timestamp_sec, frame_has_employee,
-                frame_queue_count, self._state):
+                current_tracks, timestamp_sec, self._state):
             evt_type, tid, details = item
             events.append(Event(video_id, tid, evt_type, timestamp_sec,
                                 frame_idx, details, feed_name))

@@ -1,10 +1,10 @@
 """
-Flask API backend for retail surveillance visualizer.
+Flask API backend for surveillance visualizer.
 
 Runs inference on images/videos and returns annotated results as JSON + base64
 frames for the React app to render.
 
-Uses the retail_vision SDK for all detection, tracking, zone classification,
+Uses the snow_cv SDK for all detection, tracking, zone classification,
 and event logic — no duplicated analytics code.
 
 Usage:
@@ -26,15 +26,15 @@ from PIL import Image
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-# Add parent dir so retail_vision SDK is importable
+# Add parent dir so snow_cv SDK is importable
 BASE_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
-from retail_vision.zones import ZoneMap
-from retail_vision.detector import PersonDetector
-from retail_vision.tracker import TrackState
-from retail_vision.events import EventEngine
-from retail_vision.strategies import get_strategy
+from snow_cv.zones import ZoneMap
+from snow_cv.detector import PersonDetector
+from snow_cv.tracker import TrackState
+from snow_cv.events import EventEngine
+from snow_cv.strategies import get_strategy
 
 app = Flask(__name__)
 CORS(app)
@@ -53,7 +53,7 @@ _last_auto_counter = None
 
 # Per-video use_case cache (populated when loading config)
 _use_case_cache = {}
-_parking_config_cache = {}
+_strategy_config_cache = {}
 
 
 def frame_to_b64(pil_img, quality=85):
@@ -92,7 +92,7 @@ def parse_counter(req):
 
 def _build_zone_map(zones, counter=None, use_case="retail", config=None):
     """Build a ZoneMap from a zones dict and optional counter region."""
-    strategy = get_strategy(use_case, (config or {}).get("parking", {}))
+    strategy = get_strategy(use_case, (config or {}).get("strategy_config", (config or {}).get("parking", {})))
     kwargs = {"zones": zones, "counter_region": counter}
     priority = (config or {}).get("zone_priority") or strategy.zone_priority()
     role_map = (config or {}).get("role_map") or strategy.role_map()
@@ -103,48 +103,39 @@ def _build_zone_map(zones, counter=None, use_case="retail", config=None):
     return ZoneMap(**kwargs)
 
 
-def _build_event_engine(use_case="retail", parking_config=None):
+def _build_event_engine(use_case="retail", config=None):
     """Build the right EventEngine for the use case."""
-    pcfg = (parking_config or {}).get("parking", {})
-    strategy = get_strategy(use_case, pcfg)
+    scfg = (config or {}).get("strategy_config", (config or {}).get("parking", {}))
+    strategy = get_strategy(use_case, scfg)
     return EventEngine.default(strategy=strategy)
 
 
 def _resolve_use_case(filename):
-    """Look up cached use_case and parking config for a filename."""
+    """Look up cached use_case and strategy config for a filename."""
     uc = _use_case_cache.get(filename, "retail")
-    pcfg = _parking_config_cache.get(filename, {})
-    return uc, pcfg
+    scfg = _strategy_config_cache.get(filename, {})
+    return uc, scfg
 
 
 def analyze_frame_sdk(arr, zone_map, track_state, event_engine,
                       frame_idx=0, timestamp_sec=0.0, use_case="retail"):
     """Run detection + tracking + events on a single frame using the SDK.
 
-    Returns a dict matching the original API response format for the React app.
+    Returns a generic dict with people, events, and role/event summaries.
     """
     strategy = event_engine.strategy
-    is_parking = use_case == "parking"
 
     detections = detector.detect(arr)
 
     if not detections:
-        empty = {
+        return {
             "scene_description": "No people tracked in frame",
             "people": [],
             "events": [],
+            "role_counts": {},
+            "event_counts": {},
+            "traffic_metrics": {"entered": 0, "exited": 0, "left_unserviced": 0},
         }
-        if is_parking:
-            empty["parking_metrics"] = {
-                "at_machine": 0, "confused": 0, "vehicles_present": 0,
-            }
-        else:
-            empty["queue_metrics"] = {"queue_length": 0, "people_in_queue": [],
-                                      "queue_start_location": None, "queue_end_location": None}
-            empty["service_point"] = {"active": False, "employee_present": False,
-                                      "customer_being_served": None}
-            empty["traffic_metrics"] = {"entered": 0, "exited": 0, "left_unserviced": 0}
-        return empty
 
     # Dedup + merge
     centroids = [d.centroid for d in detections]
@@ -157,7 +148,6 @@ def analyze_frame_sdk(arr, zone_map, track_state, event_engine,
     people = []
     current_tids = set()
     current_tracks = {}
-    frame_has_employee = False
 
     for j, det in enumerate(detections):
         if j in suppressed:
@@ -191,9 +181,6 @@ def analyze_frame_sdk(arr, zone_map, track_state, event_engine,
         track_state.update_centroid(tid, cx, cy)
         info.prev_role = role
 
-        if role == "employee":
-            frame_has_employee = True
-
         people.append({
             "person_id": f"P{len(people)+1}",
             "track_id": int(tid),
@@ -208,11 +195,14 @@ def analyze_frame_sdk(arr, zone_map, track_state, event_engine,
             "first_seen_sec": info.first_seen_sec,
         })
 
-    # Queue positions (retail only)
-    queue_people = [p for p in people if p["role"] == "in_queue"]
-    queue_people.sort(key=lambda p: (p["bounding_box"]["x_min"] + p["bounding_box"]["x_max"]) / 2)
-    for pos, p in enumerate(queue_people, 1):
-        p["queue_position"] = pos
+    # Queue positions — strategy declares which role is "queue"
+    special = strategy.special_roles()
+    queue_role = special.get("queue_role")
+    if queue_role:
+        queue_people = [p for p in people if p["role"] == queue_role]
+        queue_people.sort(key=lambda p: (p["bounding_box"]["x_min"] + p["bounding_box"]["x_max"]) / 2)
+        for pos, p in enumerate(queue_people, 1):
+            p["queue_position"] = pos
 
     # Track loss
     truly_lost = track_state.process_missing(current_tids)
@@ -233,67 +223,30 @@ def analyze_frame_sdk(arr, zone_map, track_state, event_engine,
         timestamp_sec=timestamp_sec,
         current_tracks=current_tracks,
         lost_tracks=lost_tracks,
-        frame_has_employee=frame_has_employee,
-        frame_queue_count=len(queue_people),
     )
 
     event_dicts = [{"track_id": e.track_id, "event_type": e.event_type,
                     "details": e.details} for e in frame_events]
 
-    if is_parking:
-        at_machine = sum(1 for p in people if p["role"] == "at_machine")
-        confused = sum(1 for e in frame_events if e.event_type == "confusion_detected")
-        arrived = sum(1 for e in frame_events if e.event_type == "vehicle_arrived")
+    # Generic role and event counts
+    from collections import Counter
+    role_counts = Counter(p["role"] for p in people)
+    event_type_counts = Counter(e.event_type for e in frame_events)
 
-        desc = f"Parking surveillance frame with {len(people)} people detected"
-        if at_machine:
-            desc += f", {at_machine} at ticket machine"
-        if confused:
-            desc += f", {confused} confused"
+    desc = f"{strategy.name.title()} surveillance frame with {len(people)} people detected"
 
-        return {
-            "scene_description": desc,
-            "people": people,
-            "parking_metrics": {
-                "at_machine": at_machine,
-                "confused": confused,
-                "vehicles_present": arrived,
-            },
-            "traffic_metrics": {
-                "entered": sum(1 for e in frame_events if e.event_type == "vehicle_arrived"),
-                "exited": sum(1 for e in frame_events if e.event_type == "transaction_completed"),
-                "left_unserviced": sum(1 for e in frame_events if e.event_type == "abandoned_transaction"),
-            },
-            "events": event_dicts,
-        }
-    else:
-        being_served = [p for p in people if p["role"] == "customer_being_served"]
-        entered = sum(1 for e in frame_events if e.event_type == "entered_store")
-        exited = sum(1 for e in frame_events if e.event_type == "exited_store")
-        left_unserviced = sum(1 for e in frame_events
-                              if e.event_type in ("abandoned", "unserviced"))
-
-        return {
-            "scene_description": f"Retail surveillance frame with {len(people)} people detected",
-            "people": people,
-            "queue_metrics": {
-                "queue_length": len(queue_people),
-                "people_in_queue": [p["person_id"] for p in queue_people],
-                "queue_start_location": None,
-                "queue_end_location": None,
-            },
-            "service_point": {
-                "active": frame_has_employee and len(being_served) > 0,
-                "employee_present": frame_has_employee,
-                "customer_being_served": being_served[0]["person_id"] if being_served else None,
-            },
-            "traffic_metrics": {
-                "entered": entered,
-                "exited": exited,
-                "left_unserviced": left_unserviced,
-            },
-            "events": event_dicts,
-        }
+    return {
+        "scene_description": desc,
+        "people": people,
+        "events": event_dicts,
+        "role_counts": dict(role_counts),
+        "event_counts": dict(event_type_counts),
+        "traffic_metrics": {
+            "entered": sum(1 for e in frame_events if "arrived" in e.event_type or "entered" in e.event_type),
+            "exited": sum(1 for e in frame_events if "exited" in e.event_type or "completed" in e.event_type),
+            "left_unserviced": sum(1 for e in frame_events if "abandoned" in e.event_type or "unserviced" in e.event_type),
+        },
+    }
 
 
 # ---------- API Routes ----------
@@ -322,7 +275,7 @@ def analyze_image():
 
     zone_map = _build_zone_map(zones, counter, use_case=use_case, config=pcfg)
     track_state = TrackState()
-    event_engine = _build_event_engine(use_case=use_case, parking_config=pcfg)
+    event_engine = _build_event_engine(use_case=use_case, config=pcfg)
 
     if "file" in request.files:
         file = request.files["file"]
@@ -377,7 +330,7 @@ def analyze_video():
 
     zone_map = _build_zone_map(zones, counter, use_case=use_case, config=pcfg)
     track_state = TrackState()
-    event_engine = _build_event_engine(use_case=use_case, parking_config=pcfg)
+    event_engine = _build_event_engine(use_case=use_case, config=pcfg)
 
     if "file" in request.files:
         file = request.files["file"]
@@ -523,15 +476,14 @@ def auto_zones():
             result["detected"].append("counter")
             _last_auto_counter = counter_val
 
-        # Cache use_case and parking config for downstream endpoints
+        # Cache use_case and strategy config for downstream endpoints
         uc = config.get("use_case", "retail")
         _use_case_cache[filename] = uc
-        if uc == "parking":
-            _parking_config_cache[filename] = {
-                "parking": config.get("parking", {}),
-                "zone_priority": config.get("zone_priority"),
-                "role_map": config.get("role_map"),
-            }
+        _strategy_config_cache[filename] = {
+            "strategy_config": config.get("strategy_config", config.get("parking", {})),
+            "zone_priority": config.get("zone_priority"),
+            "role_map": config.get("role_map"),
+        }
         result["use_case"] = uc
 
         # Add reference frame
@@ -553,7 +505,7 @@ def auto_zones():
         "counter": None,
         "detected": [],
         "method": "none",
-        "message": "No zone config found. Use the retail-zone-setup skill to configure zones.",
+        "message": "No zone config found. Use the onboarding skill to configure zones.",
     }
 
     if filename.lower().endswith((".mp4", ".avi", ".mov", ".mkv")):
@@ -643,7 +595,7 @@ def walkthrough():
     use_case, pcfg = _resolve_use_case(filename)
     zone_map = _build_zone_map(zones, counter, use_case=use_case, config=pcfg)
     track_state = TrackState()
-    event_engine = _build_event_engine(use_case=use_case, parking_config=pcfg)
+    event_engine = _build_event_engine(use_case=use_case, config=pcfg)
     filepath = RAW_VIDEO_DIR / filename
     if not filepath.exists():
         return jsonify({"error": f"File not found: {filename}"}), 404

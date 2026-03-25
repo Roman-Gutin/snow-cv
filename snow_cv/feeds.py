@@ -20,7 +20,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 
-from retail_vision.config import FeedConfig, FeedLink
+from snow_cv.config import FeedConfig, FeedLink
 
 log = logging.getLogger(__name__)
 
