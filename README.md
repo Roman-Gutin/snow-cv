@@ -1,4 +1,4 @@
-# Snow CV — Computer Vision on Snowflake
+# Snow CV — CV 101 with Auto SPCS Deployment.
 
 ## What Is It
 
