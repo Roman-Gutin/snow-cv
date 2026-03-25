@@ -8,6 +8,11 @@ const ROLE_COLORS = {
   exiting: "#FFA38B",
   at_entrance: "#A77BCA",
   other: "#CED9E5",
+  // Parking roles
+  at_machine: "#FFC658",
+  exited_vehicle: "#EE2737",
+  at_gate: "#78D64B",
+  approaching: "#A77BCA",
 };
 
 const EVENT_COLORS = {
@@ -24,6 +29,19 @@ const EVENT_COLORS = {
   employee_left: "#5C88DA",
   counter_unstaffed_start: "#E35205",
   counter_unstaffed_end: "#78D64B",
+  // Parking events
+  vehicle_arrived: "#A77BCA",
+  machine_interaction_started: "#FFC658",
+  machine_interaction_ended: "#FFC658",
+  machine_interaction_prolonged: "#E35205",
+  driver_exited_vehicle: "#EE2737",
+  confusion_detected: "#EE2737",
+  gate_approached: "#78D64B",
+  transaction_completed: "#78D64B",
+  abandoned_transaction: "#EE2737",
+  passed_without_interaction: "#CED9E5",
+  person_detected: "#CED9E5",
+  person_left: "#FFA38B",
 };
 
 const ZONE_COLORS = {
@@ -32,6 +50,11 @@ const ZONE_COLORS = {
   queue: "rgba(255, 198, 88, 0.28)",
   entrance: "rgba(167, 123, 202, 0.28)",
   counter: "rgba(75, 61, 42, 0.32)",
+  // Parking zones
+  ticket_machine: "rgba(255, 198, 88, 0.28)",
+  exit_vehicle: "rgba(238, 39, 55, 0.22)",
+  gate_area: "rgba(120, 214, 75, 0.28)",
+  approach_lane: "rgba(167, 123, 202, 0.28)",
 };
 
 const ZONE_BORDERS = {
@@ -40,6 +63,11 @@ const ZONE_BORDERS = {
   queue: "rgba(255, 198, 88, 0.85)",
   entrance: "rgba(167, 123, 202, 0.85)",
   counter: "rgba(75, 61, 42, 0.9)",
+  // Parking zones
+  ticket_machine: "rgba(255, 198, 88, 0.85)",
+  exit_vehicle: "rgba(238, 39, 55, 0.85)",
+  gate_area: "rgba(120, 214, 75, 0.85)",
+  approach_lane: "rgba(167, 123, 202, 0.85)",
 };
 
 // visibilityLevel controls progressive overlay rendering (for walkthrough mode):

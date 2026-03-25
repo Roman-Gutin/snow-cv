@@ -1,31 +1,41 @@
 import { useState, useCallback, useEffect } from "react";
 import FrameCanvas from "./FrameCanvas";
-import StepDescription from "./StepDescription";
 
 const API = "http://localhost:5001/api";
 
-const STEP_NAMES = [
-  "Raw Frame",
-  "Detection",
-  "Segmentation",
-  "Tracking",
-  "Zone Classification",
-  "Event Detection",
-];
-
-export default function PipelineWalkthrough({ zones, counter }) {
-  const [step, setStep] = useState(1); // 1-6
+export default function PipelineWalkthrough() {
   const [frames, setFrames] = useState(null);
   const [frameIdx, setFrameIdx] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [videos, setVideos] = useState([]);
+  const [activeVideo, setActiveVideo] = useState(null);
+  const [zones, setZones] = useState(null);
+  const [counter, setCounter] = useState(null);
+  const [playing, setPlaying] = useState(false);
 
   const loadVideo = useCallback(async (filename) => {
     setLoading(true);
     setError(null);
     setFrameIdx(0);
+    setFrames(null);
+    setActiveVideo(filename);
+    setPlaying(false);
     try {
-      const res = await fetch(`${API}/walkthrough?conf=0.3&max_frames=30`, {
+      // Load zones for this video
+      const zoneRes = await fetch(`${API}/auto-zones`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: filename }),
+      });
+      const zoneData = await zoneRes.json();
+      if (zoneData.zones && Object.keys(zoneData.zones).length > 0) {
+        setZones(zoneData.zones);
+        setCounter(zoneData.counter || null);
+      }
+
+      // Run inference on all frames
+      const res = await fetch(`${API}/walkthrough?conf=0.25&max_frames=60`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: filename }),
@@ -40,40 +50,75 @@ export default function PipelineWalkthrough({ zones, counter }) {
     }
   }, []);
 
-  // Auto-load the synthetic retail video on mount
+  // Fetch available videos and auto-load the first one
   useEffect(() => {
-    loadVideo("synthetic_retail_queue.mp4");
+    fetch(`${API}/sample-files`)
+      .then((r) => r.json())
+      .then((data) => {
+        const vids = data.videos || [];
+        setVideos(vids);
+        if (vids.length > 0) loadVideo(vids[0]);
+      })
+      .catch((e) => setError("Cannot connect to backend on port 5001."));
   }, [loadVideo]);
+
+  // Auto-play: advance frame every 500ms
+  useEffect(() => {
+    if (!playing || !frames) return;
+    const timer = setInterval(() => {
+      setFrameIdx((i) => {
+        if (i >= frames.length - 1) {
+          setPlaying(false);
+          return i;
+        }
+        return i + 1;
+      });
+    }, 500);
+    return () => clearInterval(timer);
+  }, [playing, frames]);
 
   const currentFrame = frames ? frames[frameIdx] : null;
 
-  const prevStep = () => setStep((s) => Math.max(1, s - 1));
-  const nextStep = () => setStep((s) => Math.min(6, s + 1));
+  // Collect all events up to current frame
+  const cumulativeEvents = frames
+    ? frames.slice(0, frameIdx + 1).flatMap((f) => f.events || [])
+    : [];
 
   return (
     <div className="walkthrough">
       {error && <div className="error-banner">{error}</div>}
-      {loading && <div className="loading">Running YOLO inference on all frames... this may take a minute.</div>}
+      {loading && (
+        <div className="loading">
+          Running YOLO inference on all frames... this may take a minute.
+        </div>
+      )}
 
       {frames && (
         <>
-          {/* Step nav + description on top */}
-          <div className="wt-top-panel">
-            <div className="wt-step-nav">
-              <button onClick={prevStep} disabled={step <= 1} className="wt-nav-btn">
-                &#8592;
-              </button>
-              <span className="wt-step-label">
-                <span className="wt-step-num">{step}</span>/6 — {STEP_NAMES[step - 1]}
-              </span>
-              <button onClick={nextStep} disabled={step >= 6} className="wt-nav-btn">
-                &#8594;
-              </button>
+          {/* Video selector */}
+          {videos.length > 1 && (
+            <div className="wt-top-panel">
+              <div className="btn-group" style={{ justifyContent: "center" }}>
+                {videos.map((v) => (
+                  <button
+                    key={v}
+                    className={`sample-btn video-btn${activeVideo === v ? " active" : ""}`}
+                    onClick={() => loadVideo(v)}
+                    disabled={loading}
+                    style={
+                      activeVideo === v
+                        ? { background: "var(--tru-green-muted)", borderColor: "var(--tru-green)" }
+                        : {}
+                    }
+                  >
+                    {v.replace(".mp4", "").replace(/_/g, " ")}
+                  </button>
+                ))}
+              </div>
             </div>
-            <StepDescription level={step} />
-          </div>
+          )}
 
-          {/* Canvas + scrubber below */}
+          {/* Canvas — show everything: zones, people, roles, events */}
           <div className="wt-canvas-area">
             {currentFrame && (
               <FrameCanvas
@@ -81,43 +126,55 @@ export default function PipelineWalkthrough({ zones, counter }) {
                 analysis={currentFrame.analysis}
                 zones={zones}
                 counter={counter}
-                showZones={false}
-                visibilityLevel={step}
+                showZones={true}
+                showPersons={true}
+                showRoles={true}
+                showEvents={true}
                 events={currentFrame.events}
               />
             )}
           </div>
 
+          {/* Controls: play/pause + scrubber */}
           <div className="wt-controls-row">
-            {/* Frame scrubber */}
             <div className="wt-frame-scrubber">
-              <label className="wt-scrub-label">
-                Frame {frameIdx + 1}/{frames.length}
-                {currentFrame && ` — ${currentFrame.timestamp}s`}
-              </label>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <button
+                  className="wt-nav-btn"
+                  onClick={() => setPlaying(!playing)}
+                  style={{ minWidth: 36, fontSize: 18 }}
+                >
+                  {playing ? "\u23F8" : "\u25B6"}
+                </button>
+                <label className="wt-scrub-label">
+                  Frame {frameIdx + 1}/{frames.length}
+                  {currentFrame && ` \u2014 ${currentFrame.timestamp}s`}
+                </label>
+              </div>
               <input
                 type="range"
                 min={0}
                 max={frames.length - 1}
                 value={frameIdx}
-                onChange={(e) => setFrameIdx(Number(e.target.value))}
+                onChange={(e) => {
+                  setFrameIdx(Number(e.target.value));
+                  setPlaying(false);
+                }}
                 className="wt-scrub-slider"
               />
             </div>
 
-            {/* Cumulative events at step 6 */}
-            {step >= 6 && currentFrame && currentFrame.cumulative_events && (
+            {/* Event log */}
+            {cumulativeEvents.length > 0 && (
               <div className="wt-events-summary">
-                <h4>Events</h4>
+                <h4>Events ({cumulativeEvents.length})</h4>
                 <div className="wt-event-list">
-                  {currentFrame.cumulative_events.map((evt, i) => (
+                  {cumulativeEvents.map((evt, i) => (
                     <span key={i} className="wt-event-chip" data-type={evt.event_type}>
-                      {evt.track_id !== 0 && `#${evt.track_id} `}{evt.event_type.replace(/_/g, " ")}
+                      {evt.track_id !== 0 && `#${evt.track_id} `}
+                      {evt.event_type.replace(/_/g, " ")}
                     </span>
                   ))}
-                  {currentFrame.cumulative_events.length === 0 && (
-                    <span className="muted">No events detected yet</span>
-                  )}
                 </div>
               </div>
             )}

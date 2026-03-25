@@ -750,6 +750,19 @@ body {
 .wt-event-chip[data-type="service_started"] { border-color: var(--tru-bud); color: #a6e88a; }
 .wt-event-chip[data-type="employee_arrived"] { border-color: var(--tru-dream); color: #8aafee; }
 
+/* Parking event chips */
+.wt-event-chip[data-type="vehicle_arrived"] { border-color: var(--tru-kush); color: var(--tru-kush); }
+.wt-event-chip[data-type="machine_interaction_started"] { border-color: var(--tru-rosin); color: var(--tru-rosin); }
+.wt-event-chip[data-type="machine_interaction_ended"] { border-color: var(--tru-rosin); color: var(--tru-rosin); }
+.wt-event-chip[data-type="machine_interaction_prolonged"] { border-color: var(--tru-ember); color: var(--tru-flower); }
+.wt-event-chip[data-type="driver_exited_vehicle"] { border-color: var(--tru-blaze); color: #ff6b6b; }
+.wt-event-chip[data-type="confusion_detected"] { border-color: var(--tru-blaze); color: #ff6b6b; }
+.wt-event-chip[data-type="gate_approached"] { border-color: var(--tru-bud); color: #a6e88a; }
+.wt-event-chip[data-type="transaction_completed"] { border-color: var(--tru-bud); color: #a6e88a; }
+.wt-event-chip[data-type="abandoned_transaction"] { border-color: var(--tru-blaze); color: #ff6b6b; }
+.wt-event-chip[data-type="person_detected"] { border-color: var(--tru-haze); color: var(--tru-haze); }
+.wt-event-chip[data-type="person_left"] { border-color: var(--tru-flower); color: var(--tru-flower); }
+
 /* ===== Scrollbar styling ===== */
 ::-webkit-scrollbar {
   width: 6px;

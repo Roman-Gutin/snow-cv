@@ -1,0 +1,27 @@
+# Event rules for parking lot ticket machine confusion detection.
+#
+# Built-in parking events (always active when use_case=parking):
+#   vehicle_arrived, machine_interaction_started, machine_interaction_ended,
+#   machine_interaction_prolonged, driver_exited_vehicle, confusion_detected,
+#   gate_approached, transaction_completed, abandoned_transaction,
+#   passed_without_interaction, person_left
+#
+# Add custom rules below to extend the built-in set:
+
+rules: []
+
+# Example custom rules (uncomment to activate):
+#
+# - name: repeated_exit_vehicle
+#   trigger: zone_transition
+#   from_zones: [at_machine]
+#   to_zones: [exited_vehicle]
+#   # Fires when someone leaves the machine and goes back to their car —
+#   # possible multi-attempt frustration pattern.
+#
+# - name: long_machine_dwell_alert
+#   trigger: track_lost
+#   conditions:
+#     visited_any: [at_machine, ticket_machine]
+#     not_visited: [at_gate, gate_area]
+#   # Fires when someone interacted with machine but never passed the gate.

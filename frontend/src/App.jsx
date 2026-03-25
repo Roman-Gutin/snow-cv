@@ -28,7 +28,7 @@ function App() {
   const [currentFrameIdx, setCurrentFrameIdx] = useState(0);
 
   const [mode, setMode] = useState(null); // "image" | "video"
-  const [tab, setTab] = useState("visualizer"); // "visualizer" | "walkthrough"
+  const [tab, setTab] = useState("walkthrough"); // "visualizer" | "walkthrough"
   const [activeFile, setActiveFile] = useState(null); // currently loaded filename
   const [zoneDetection, setZoneDetection] = useState(null); // result from auto-detect
   const [detectingZones, setDetectingZones] = useState(false);
@@ -334,10 +334,7 @@ function App() {
       )}
 
       {tab === "walkthrough" && (
-        <PipelineWalkthrough
-          zones={zones}
-          counter={counter}
-        />
+        <PipelineWalkthrough />
       )}
     </div>
   );

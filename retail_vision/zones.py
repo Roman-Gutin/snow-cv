@@ -43,6 +43,16 @@ DEFAULT_ROLE_MAP = {
     "entrance": "at_entrance",
 }
 
+# --- Parking lot use case ---
+PARKING_ZONE_PRIORITY = ["exit_vehicle", "ticket_machine", "gate_area", "approach_lane"]
+
+PARKING_ROLE_MAP = {
+    "exit_vehicle": "exited_vehicle",
+    "ticket_machine": "at_machine",
+    "gate_area": "at_gate",
+    "approach_lane": "approaching",
+}
+
 
 @dataclass
 class ZoneMap:

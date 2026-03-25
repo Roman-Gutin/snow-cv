@@ -36,6 +36,8 @@ class FeedConfig:
     video_path: str = ""
     zones: dict[str, list[list[float]]] = field(default_factory=dict)
     counter_region: Optional[list[list[float]]] = None
+    zone_priority: Optional[list[str]] = None
+    role_map: Optional[dict[str, str]] = None
     # Processing params
     sample_fps: int = 1
     confidence_threshold: float = 0.3
@@ -48,6 +50,8 @@ class FeedConfig:
             video_path=d.get("video_path", ""),
             zones=d.get("zones") or {},
             counter_region=d.get("counter_region"),
+            zone_priority=d.get("zone_priority"),
+            role_map=d.get("role_map"),
             sample_fps=d.get("sample_fps", 1),
             confidence_threshold=d.get("confidence_threshold", 0.3),
             model_name=d.get("model_name", "yolov8n-seg.pt"),
@@ -68,11 +72,13 @@ EXAMPLE_COUNTER_REGION = [[0.03, 0.55], [0.35, 0.55], [0.35, 0.95], [0.03, 0.95]
 
 @dataclass
 class StoreConfig:
-    """Top-level config for a store deployment."""
+    """Top-level config for a store/site deployment."""
     store_id: str
+    use_case: str = "retail"  # "retail" | "parking" — controls zone/event defaults
     feeds: list[FeedConfig] = field(default_factory=list)
     feed_links: list[FeedLink] = field(default_factory=list)
     event_rules_path: Optional[str] = None
+    parking: dict = field(default_factory=dict)  # parking-specific thresholds
 
     # SPCS / infrastructure
     database: str = "SNOW_CV_DB"
@@ -96,6 +102,10 @@ class StoreConfig:
         for fd in d.get("feeds", []):
             feeds.append(FeedConfig.from_dict(fd))
 
+        # Top-level zone_priority / role_map (propagated to single-camera shorthand)
+        zone_priority = d.get("zone_priority")
+        role_map = d.get("role_map")
+
         # Single-camera shorthand: if no feeds defined, create one from top-level zones
         if not feeds:
             zones = d.get("zones") or {}
@@ -104,6 +114,8 @@ class StoreConfig:
                 video_path=d.get("video_path", ""),
                 zones=zones,
                 counter_region=d.get("counter_region"),
+                zone_priority=zone_priority,
+                role_map=role_map,
                 sample_fps=d.get("sample_fps", 1),
                 confidence_threshold=d.get("confidence_threshold", 0.3),
             ))
@@ -120,9 +132,11 @@ class StoreConfig:
 
         return cls(
             store_id=d.get("store_id", "unknown"),
+            use_case=d.get("use_case", "retail"),
             feeds=feeds,
             feed_links=links,
             event_rules_path=d.get("event_rules_path"),
+            parking=d.get("parking", {}),
             database=d.get("database", "SNOW_CV_DB"),
             schema=d.get("schema", "SNOW_CV_SCHEMA"),
             warehouse=d.get("warehouse", "SNOW_CV_WH"),

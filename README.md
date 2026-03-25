@@ -2,15 +2,22 @@
 
 ## What Is It
 
-Snow CV is a fast path from raw camera footage to structured Snowflake data. It combines Cortex Code skills, a Python SDK, GPU containers on SPCS, and pre-built SQL analytics so you can ship a computer vision use case in a single session — not weeks.
+Snow CV is the starting point for shipping computer vision use cases on Snowflake compute. Drop a video, describe what you want to measure, and a Cortex Code skill handles the rest — zone identification, event logic, GPU container deployment, and SQL analytics. One session, not weeks.
+
+The repo ships a pluggable Python SDK, a GPU container for SPCS, pre-built SQL analytics, and a skill prompt that orchestrates the full onboarding flow. Two use cases are built-in (retail queue analytics and parking lot confusion detection). Adding a new one means writing one strategy class and one config file.
 
 ## Why It Matters
 
-CV projects fail for predictable reasons. The abstractions are unclear — teams blur the line between detection, tracking, and business logic until everything is coupled. Labeling is expensive and slow. Training custom models takes months, often doesn't generalize, and locks you into a maintenance cycle. Most teams bite off more than they can chew and ship nothing.
+CV projects fail because teams couple detection, tracking, and business logic into one tangled codebase. Labeling is expensive. Custom model training takes months, rarely generalizes, and locks you into maintenance. Most teams ship nothing.
 
-Snow CV sidesteps this entirely. Instead of training custom models, it pairs open-source models that already work (YOLOv8 for detection, ByteTrack for tracking) with a coding agent that reasons about your video and your use case together. The agent looks at your footage, identifies the zones that matter, wires up the event logic, and deploys the pipeline — all in one session. The models are off the shelf. The intelligence is in the orchestration.
+Snow CV decouples the stack:
 
-Over time, this repo will catalog which open-source models work best for which tasks. Customers won't need to shop for the best model — the toolkit will already know.
+- **Detection and tracking** use off-the-shelf models (YOLOv8, ByteTrack). No training, no labeling.
+- **Business logic** lives in strategy classes — pluggable Python that maps zones to roles to events. One class per use case.
+- **Scene understanding** is handled by the coding agent's own visual reasoning at onboarding time. It looks at your video and identifies the zones that matter. No annotation tool needed.
+- **Deployment** is a config file uploaded to a Snowflake stage. The GPU container reads it and writes structured data to Snowflake tables.
+
+The intelligence is in the orchestration, not the models.
 
 ## Get Started
 
@@ -20,135 +27,208 @@ Place your `.mp4` in the `videos/` folder.
 
 ### 2. Tell the agent what you see
 
-Open Cortex Code in this repo and describe your use case. Here's the prompt that shipped the retail queue use case:
+Open Cortex Code in this repo and describe your use case:
 
 ```
-I have a video of a retail store at videos/synthetic_retail_queue.mp4.
-Customers walk in, wait in a queue, and get served at a counter.
-I want to measure wait times, detect when people abandon the line,
-and know when the counter is unstaffed. Help me build a pipeline
-to get this data into Snowflake.
+I have a video of a parking garage at videos/gate1.mp4.
+Customers pull up, use a ticket machine, and drive through a gate.
+I want to detect when people are confused or frustrated at the
+ticket machine — long dwell times, exiting the vehicle, or
+abandoning the transaction. Get this data into Snowflake.
 ```
 
-That's it. The agent takes it from there — it looks at your footage, identifies the zones, builds the config, previews the detections locally, deploys to SPCS, and runs the SQL to verify.
+The agent takes it from there.
 
-### 3. Verify in the React app
+### 3. What the skill does
 
-The agent starts a local preview app where you can see zones overlaid on your video with real-time detection, role classification, and events. This is your visual confirmation that the pipeline is generating the right data before it hits Snowflake.
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     YOU DESCRIBE THE USE CASE                │
+│  "parking lot, detect confusion at ticket machines"          │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  1. EXTRACT REFERENCE FRAME                                  │
+│     Pull a frame from the video for visual analysis          │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  2. IDENTIFY ZONES (agent vision)                            │
+│     Agent looks at the frame + your description              │
+│     Maps spatial regions to business-relevant zones          │
+│                                                              │
+│     "I see an approach lane, a ticket kiosk area,            │
+│      a vehicle exit lane, and a gate barrier"                │
+│                                                              │
+│     ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐    │
+│     │ approach │ │  ticket  │ │   exit   │ │   gate   │    │
+│     │  lane    │ │ machine  │ │ vehicle  │ │   area   │    │
+│     └──────────┘ └──────────┘ └──────────┘ └──────────┘    │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  3. BUILD STRATEGY (or select existing one)                  │
+│     zones → roles → events → business metrics                │
+│                                                              │
+│     Zone "ticket_machine" → role "at_machine"                │
+│     Dwell > 30s at machine → event "confusion_detected"      │
+│     Was at machine + never reached gate → "abandoned"        │
+│                                                              │
+│     One Python class. ~100 lines.                            │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  4. GENERATE CONFIG                                          │
+│     JSON file with zone polygons, role map, thresholds       │
+│     Uploaded to Snowflake stage alongside the video          │
+│                                                              │
+│     configs/gate1.json → @RAW_VIDEO/configs/gate1.json       │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  5. VALIDATE LOCALLY                                         │
+│     Run pipeline against video with generated config         │
+│     Check: roles correct? events firing? counts make sense?  │
+│                                                              │
+│     "64 detections, 93.8% at_machine, 4 events"             │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  6. DEPLOY TO SPCS                                           │
+│     Docker container + GPU compute pool                      │
+│     Container reads config from stage, runs YOLO+ByteTrack   │
+│     Writes PERSON_DETECTIONS + PERSON_EVENTS to Snowflake    │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│  7. SQL ANALYTICS                                            │
+│     Use-case-specific views on top of generic tables         │
+│                                                              │
+│     SELECT confusion_rate, avg_dwell_sec, abandonment_pct    │
+│     FROM PARKING_ANALYTICS                                   │
+│                                                              │
+│     Business insight, queryable in Snowflake.                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+The skill prompt that drives this flow is in `skills/onboard.md`. The agent follows it automatically when you describe a use case.
 
 ## Known Use Cases
 
-| Domain | Use Case | Status |
-|--------|----------|--------|
-| Retail | [Customer Lines and Abandonment](docs/use-cases/retail-queue-abandonment.md) | Shipped |
+| Domain | Use Case | Strategy | Status |
+|--------|----------|----------|--------|
+| Retail | [Customer Lines and Abandonment](docs/use-cases/retail-queue-abandonment.md) | `RetailStrategy` | Shipped |
+| Parking | [Ticket Machine Confusion Detection](docs/use-cases/parking-ticket-confusion.md) | `ParkingStrategy` | Shipped |
 
-*See [Contributing](#contributing) to add yours.*
+## How a Use Case Works
 
-## What Cortex Code Skills Do For You
+Every use case follows the same structure:
 
-The heavy lifting happens through two skills that the agent invokes automatically. You don't call them directly — you describe your use case and the agent picks the right skill.
+```
+video → zones → role map → strategy class → SQL view
+```
 
-**`retail-zone-setup`** — Camera onboarding
+**Zones** define WHERE things happen (spatial regions in the camera frame).
 
-The agent extracts a reference frame from your video, looks at it, and identifies the spatial layout: where the entrance is, where people queue, where the service counter is, where employees stand. It generates a zone config, pushes it to a local Flask server, and opens the React preview so you can confirm the zones are right. Then it builds a job spec with your zones baked in as environment variables.
+**Role map** defines WHAT someone is doing (zone name → role name).
 
-This is the step that replaces weeks of manual annotation. The agent's visual reasoning identifies business-relevant zones from a single frame — something no off-the-shelf vision model (including Florence-2) could do reliably.
+**Strategy class** defines WHAT IT MEANS:
+- `classify_role(zone)` — assign a role from a zone
+- `eval_appeared(role)` — what events fire when someone shows up
+- `eval_transition(old_role, new_role)` — what events fire when someone moves
+- `eval_lost(track_info)` — what events fire when someone disappears
+- `eval_frame_level(all_tracks)` — what to check every frame (dwell times, staffing gaps)
 
-**`deploy-to-spcs`** — Container deployment
+**SQL view** turns events into business metrics.
 
-Once the zones are confirmed, the agent builds the Docker image, pushes it to your Snowflake image repository, and runs `EXECUTE JOB SERVICE` on a GPU compute pool. The container connects via OAuth, downloads your video from a Snowflake stage, runs YOLO + ByteTrack frame-by-frame, and writes structured detections and events to Snowflake tables. One-shot job — it runs and exits.
+### Adding a New Use Case
 
-**The pattern:** You describe what you want to measure. The agent reasons about the video, picks the right models and zones, configures the pipeline, deploys it, and verifies the SQL output. The skills encode the operational knowledge so you don't have to.
+1. Write a strategy class in `retail_vision/strategies.py` (~100 lines)
+2. Register it: `register_strategy("airport", AirportStrategy)`
+3. Create a config JSON in `configs/` with zone polygons and `"use_case": "airport"`
+4. Create a SQL view in `sql/` for the business queries
+5. Add a doc in `docs/use-cases/` and a row to the table above
 
-## Models Used and Why
-
-Snow CV uses open-source models chosen for the best tradeoff between accuracy, speed, and zero labeling cost. As the repo grows, this catalog will expand — the goal is that customers never need to evaluate models themselves.
-
-| Model | Task | Why This One |
-|-------|------|-------------|
-| **YOLOv8n-seg** | Person detection + segmentation | Nano variant runs on a single GPU at real-time speeds. Segmentation masks give precise boundaries for zone containment, not just bounding boxes. Pre-trained on COCO — no custom labels needed. |
-| **ByteTrack** | Multi-object tracking | Assigns persistent IDs across frames so you can track a specific person from entrance to service counter. Works on top of any detector's output with no additional training. Handles occlusion and re-identification well in fixed-camera scenarios. |
-| **Cortex Code (multimodal agent)** | Scene understanding / zone detection | The agent itself looks at a reference frame from your video and reasons about the spatial layout — where the counter is, where people queue, where the entrance is. This replaces manual zone annotation entirely. No vision model we tested (including Florence-2) could reliably identify business-relevant zones from a single frame. The coding agent's native visual reasoning handles it. |
-
-**Design principle:** No model in this stack requires custom training or labeled data. Detection and tracking use pre-trained weights. Scene understanding is handled by the agent's own visual reasoning at onboarding time — not a separate vision model. If a future use case needs a specialized model (e.g., action recognition, anomaly detection), it gets added to this table with the same bar: open-source, pre-trained, no labeling required.
-
-## Multi-Camera Support
-
-The SDK supports multiple cameras per store with cross-camera person tracking:
-
-- Define multiple feeds in a single config file (see `examples/configs/multi_camera_example.json`)
-- `feed_links` declare which exit zone on camera A correlates with which entrance zone on camera B
-- `MultiFeedManager` matches exits with entrances within a configurable time window
-- `JOURNEY_ID` propagates through events, enabling cross-camera wait time calculation
-- SQL views (`CROSS_FEED_JOURNEYS`, `JOURNEY_WAIT_TIMES`) handle both single and multi-camera gracefully
+No changes to the pipeline, event engine, container, or deployment. The strategy is the only code you write.
 
 ## Architecture
 
 ```
 snow-cv/
-├── retail_vision/         ← Core Python SDK
-│   ├── config.py          ← StoreConfig / FeedConfig (YAML, dict, env vars)
-│   ├── detector.py        ← YOLOv8n-seg person detection
-│   ├── tracker.py         ← ByteTrack ID persistence + dedup
-│   ├── zones.py           ← ZoneMap with ray-casting point-in-polygon
-│   ├── events.py          ← Declarative event rule engine
-│   ├── feeds.py           ← MultiFeedManager (cross-camera correlation)
-│   ├── pipeline.py        ← Full pipeline orchestrator
-│   ├── output.py          ← CsvOutput (local) / SnowflakeOutput (SPCS)
-│   ├── trace.py           ← Inference quality tracing
-│   └── scene.py           ← Scene understanding utilities
+├── retail_vision/           ← Core Python SDK
+│   ├── strategies.py        ← USE-CASE LOGIC LIVES HERE
+│   │                          RetailStrategy, ParkingStrategy, ...
+│   │                          register_strategy() to add your own
+│   ├── config.py            ← StoreConfig / FeedConfig
+│   ├── detector.py          ← YOLOv8n-seg person detection
+│   ├── tracker.py           ← ByteTrack ID persistence + dedup
+│   ├── zones.py             ← ZoneMap with ray-casting point-in-polygon
+│   ├── events.py            ← Event engine (delegates to strategy)
+│   ├── pipeline.py          ← Pipeline orchestrator (uses strategy)
+│   ├── feeds.py             ← MultiFeedManager (cross-camera)
+│   ├── output.py            ← CsvOutput (local) / SnowflakeOutput (SPCS)
+│   ├── trace.py             ← Inference quality tracing
+│   └── scene.py             ← Scene understanding utilities
 ├── container/
-│   ├── Dockerfile         ← SPCS container (python:3.11 + CUDA + YOLO)
-│   ├── analyze_frames.py  ← SPCS entrypoint (supports single + multi-feed)
-│   └── job_spec_template.yaml
+│   ├── Dockerfile           ← SPCS container (python:3.11 + CUDA + YOLO)
+│   ├── analyze_frames.py    ← SPCS entrypoint (config-driven, any use case)
+│   └── job_spec_template.yaml  ← Uses STORE_CONFIG_PATH (not hardcoded zones)
+├── skills/
+│   └── onboard.md           ← Skill prompt: the full onboarding flow
 ├── sql/
-│   ├── setup.sql          ← CREATE TABLE/VIEW DDL
-│   ├── analytics.sql      ← Pre-built analytics query patterns
-│   └── key_questions.sql  ← Business questions as SQL
-├── backend/
-│   └── server.py          ← Flask API for the React preview app
-├── frontend/              ← React 19 + Vite preview app
-├── examples/              ← Reference configs and job specs
-├── docs/use-cases/        ← Detailed write-ups per use case
-├── videos/                ← Drop your .mp4 files here
-└── validate_pipeline.py   ← Local end-to-end validation script
+│   ├── setup.sql            ← Generic tables (PERSON_DETECTIONS, PERSON_EVENTS)
+│   ├── analytics.sql        ← Retail analytics patterns
+│   ├── parking_analytics.sql ← Parking analytics patterns
+│   └── key_questions.sql    ← Business questions as SQL
+├── configs/                 ← Zone configs per video (JSON)
+├── docs/use-cases/          ← Write-up per use case
+├── videos/                  ← Drop your .mp4 files here
+└── validate_pipeline.py     ← Local end-to-end validation
 ```
+
+## Models Used and Why
+
+| Model | Task | Why This One |
+|-------|------|-------------|
+| **YOLOv8n-seg** | Person detection + segmentation | Nano variant runs on a single GPU at real-time speeds. Segmentation masks give precise boundaries for zone containment. Pre-trained on COCO — no labels needed. |
+| **ByteTrack** | Multi-object tracking | Persistent IDs across frames. Works on top of any detector. No additional training. Handles occlusion well in fixed-camera scenarios. |
+| **Cortex Code (agent)** | Scene understanding / zone detection | The agent looks at a reference frame and reasons about spatial layout. Replaces manual zone annotation. No vision model we tested (including Florence-2) could reliably identify business-relevant zones from a single frame. |
+
+**Design principle:** No model requires custom training or labeled data. Detection and tracking use pre-trained weights. Scene understanding is the agent's visual reasoning at onboarding time. If a future use case needs a specialized model (action recognition, anomaly detection), it gets added to this table with the same bar: open-source, pre-trained, no labeling.
+
+## Data Model
+
+The Snowflake tables are use-case-generic. Any strategy writes to the same tables.
+
+**`PERSON_DETECTIONS`** — one row per person per frame: track ID, role, bounding box, centroid, confidence, feed name.
+
+**`PERSON_EVENTS`** — one row per event: track ID, event type, timestamp, details (JSON), feed name, journey ID.
+
+**`VIDEO_METADATA`** — one row per video: duration, FPS, zone config.
+
+**`INFERENCE_TRACES`** — per-frame pipeline telemetry for quality monitoring.
+
+Use-case-specific SQL views sit on top:
+- `VIDEO_ANALYTICS` — retail KPIs (queue length, wait time, staffing gaps)
+- `PARKING_ANALYTICS` — parking KPIs (confusion rate, dwell time, abandonment)
+- Your view here.
+
+## Multi-Camera Support
+
+- Define multiple feeds in a single config file
+- `feed_links` declare which exit zone on camera A correlates with which entrance zone on camera B
+- `MultiFeedManager` matches exits with entrances within a configurable time window
+- `JOURNEY_ID` propagates through events, enabling cross-camera analytics
 
 ## Prerequisites
 
 - Python 3.11+
-- Node 18+
 - Snowflake account with SPCS enabled (GPU compute pool)
 - [Cortex Code CLI](https://docs.snowflake.com/en/user-guide/cortex-code/cortex-code)
-
-## Contributing
-
-Want to add a new use case or improve an existing one? Here's how:
-
-### Adding a New Use Case
-
-1. **Fork this repo** and create a branch: `git checkout -b use-case/my-new-case`
-2. **Build your pipeline** using the `retail_vision` SDK as a reference. The core components (detector, tracker, zones, events, output) are reusable across use cases.
-3. **Add example configs** in `examples/configs/` showing the zone layout and parameters for your use case
-4. **Add SQL queries** in `sql/` with the analytics patterns relevant to your use case
-5. **Create a use case doc** in `docs/use-cases/` and add a row to the Known Use Cases table in this README
-6. **Include a sample video** in `videos/` (keep it small — under 5MB) or document how to obtain test footage
-7. **Validate locally**: run `python validate_pipeline.py` or create a use-case-specific validation script
-8. **Open a PR** with:
-   - What the use case measures
-   - What zones/events it uses
-   - Sample SQL output
-   - A screenshot or summary from the React preview (optional but helpful)
-
-### Improving the SDK
-
-- Bug fixes and performance improvements to `retail_vision/` are welcome
-- If you add a new event type, update `retail_vision/defaults/event_rules.yaml` and document it
-- If you add a new output writer, follow the `OutputWriter` abstract base class pattern in `output.py`
-- Keep configs genericized — use `SNOW_CV_DB` / `SNOW_CV_SCHEMA` / `SNOW_CV_WH` as placeholder defaults
-
-### Style
-
-- Keep it simple. The goal is rapid onboarding, not framework perfection.
-- Every use case should be deployable in a single Cortex Code session.
-- Configs over code — zone definitions, event rules, and Snowflake coordinates belong in config files, not hardcoded.

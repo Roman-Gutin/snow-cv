@@ -1,0 +1,49 @@
+{
+  "store_id": "metropolis_gate1",
+  "use_case": "parking",
+  "feed_name": "gate1",
+  "sample_fps": 2,
+  "confidence_threshold": 0.25,
+  "zones": {
+    "approach_lane": [
+      [0.02, 0.02],
+      [0.48, 0.02],
+      [0.48, 0.48],
+      [0.02, 0.48]
+    ],
+    "ticket_machine": [
+      [0.50, 0.05],
+      [0.72, 0.05],
+      [0.72, 0.48],
+      [0.50, 0.48]
+    ],
+    "exit_vehicle": [
+      [0.72, 0.05],
+      [0.98, 0.05],
+      [0.98, 0.48],
+      [0.72, 0.48]
+    ],
+    "gate_area": [
+      [0.50, 0.52],
+      [0.98, 0.52],
+      [0.98, 0.98],
+      [0.50, 0.98]
+    ]
+  },
+  "zone_priority": ["exit_vehicle", "ticket_machine", "gate_area", "approach_lane"],
+  "role_map": {
+    "exit_vehicle": "exited_vehicle",
+    "ticket_machine": "at_machine",
+    "gate_area": "at_gate",
+    "approach_lane": "approaching"
+  },
+  "parking": {
+    "confusion_dwell_threshold_sec": 30,
+    "exit_vehicle_is_frustration": true
+  },
+  "database": "SNOW_CV_DB",
+  "schema": "SNOW_CV_SCHEMA",
+  "warehouse": "SNOW_CV_WH",
+  "raw_video_stage": "@SNOW_CV_DB.SNOW_CV_SCHEMA.RAW_VIDEO",
+  "results_stage": "@SNOW_CV_DB.SNOW_CV_SCHEMA.RAW_VIDEO/results"
+}

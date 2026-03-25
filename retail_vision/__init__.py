@@ -25,11 +25,12 @@ Quick start (from SPCS container env vars):
 """
 
 from retail_vision.config import StoreConfig, FeedConfig
-from retail_vision.zones import ZoneMap
+from retail_vision.zones import ZoneMap, PARKING_ZONE_PRIORITY, PARKING_ROLE_MAP
 from retail_vision.scene import understand_scene, segment_fixture, validate_zones_with_yolo
 from retail_vision.detector import PersonDetector
 from retail_vision.tracker import TrackState
 from retail_vision.events import EventEngine, EventRule
+from retail_vision.strategies import get_strategy, register_strategy, UseCaseStrategy
 from retail_vision.feeds import MultiFeedManager
 from retail_vision.trace import InferenceTracer
 from retail_vision.output import OutputWriter, SnowflakeOutput, CsvOutput
@@ -39,11 +40,12 @@ __version__ = "0.1.0"
 
 __all__ = [
     "StoreConfig", "FeedConfig",
-    "ZoneMap",
+    "ZoneMap", "PARKING_ZONE_PRIORITY", "PARKING_ROLE_MAP",
     "understand_scene", "segment_fixture", "validate_zones_with_yolo",
     "PersonDetector",
     "TrackState",
     "EventEngine", "EventRule",
+    "get_strategy", "register_strategy", "UseCaseStrategy",
     "MultiFeedManager",
     "InferenceTracer",
     "OutputWriter", "SnowflakeOutput", "CsvOutput",

@@ -23,6 +23,7 @@ from retail_vision.zones import ZoneMap
 from retail_vision.detector import PersonDetector, Detection
 from retail_vision.tracker import TrackState
 from retail_vision.events import EventEngine, Event
+from retail_vision.strategies import get_strategy
 from retail_vision.feeds import MultiFeedManager
 from retail_vision.trace import InferenceTracer
 from retail_vision.output import OutputWriter, CsvOutput
@@ -67,6 +68,8 @@ class RetailPipeline:
         detector: PersonDetector | None = None,
     ):
         self.config = config or StoreConfig(store_id="default")
+        self.strategy = get_strategy(
+            self.config.use_case, self.config.parking)
         self.output = output or CsvOutput()
         self.tracer = tracer or InferenceTracer(
             store_id=self.config.store_id, enabled=True)
@@ -76,8 +79,18 @@ class RetailPipeline:
 
     def _load_event_engine(self) -> EventEngine:
         if self.config.event_rules_path and os.path.exists(self.config.event_rules_path):
-            return EventEngine.from_yaml(self.config.event_rules_path)
-        return EventEngine.default()
+            engine = EventEngine.from_yaml(
+                self.config.event_rules_path, strategy=self.strategy)
+        elif self.config.use_case == "parking":
+            default_path = os.path.join(
+                os.path.dirname(__file__), "defaults", "parking_event_rules.yaml")
+            if os.path.exists(default_path):
+                engine = EventEngine.from_yaml(default_path, strategy=self.strategy)
+            else:
+                engine = EventEngine.default(strategy=self.strategy)
+        else:
+            engine = EventEngine.default(strategy=self.strategy)
+        return engine
 
     def _get_detector(self, feed: FeedConfig) -> PersonDetector:
         if self._detector is None:
@@ -140,11 +153,16 @@ class RetailPipeline:
             feed.zones = dict(EXAMPLE_ZONES)
             feed.counter_region = list(EXAMPLE_COUNTER_REGION)
 
-        # Set up zone map from feed config
-        zone_map = ZoneMap(
-            zones=feed.zones,
-            counter_region=feed.counter_region,
-        )
+        # Set up zone map from feed config, with strategy-driven defaults
+        priority = feed.zone_priority or self.strategy.zone_priority()
+        role_map = feed.role_map or self.strategy.role_map()
+
+        zone_kwargs = {"zones": feed.zones, "counter_region": feed.counter_region}
+        if priority is not None:
+            zone_kwargs["priority"] = priority
+        if role_map is not None:
+            zone_kwargs["role_map"] = role_map
+        zone_map = ZoneMap(**zone_kwargs)
         detector = self._get_detector(feed)
         detector.reset_tracker()
 
@@ -272,34 +290,15 @@ class RetailPipeline:
                 info = track_state.get_or_create(tid, ts)
                 zone = zone_map.zone_for_point(cx, cy)
 
-                # Role classification with direction detection
-                if zone == "entrance":
-                    direction = track_state.detect_direction(tid, cx)
-                    if direction == "exiting":
-                        role = "exiting"
-                    elif direction == "entering":
-                        role = "entering"
-                    else:
-                        role = "at_entrance"
-                elif zone == "employee":
-                    role = "employee"
-                    track_state.clear_direction(tid)
-                elif zone == "service":
-                    role = "customer_being_served"
-                    track_state.clear_direction(tid)
-                elif zone == "queue":
-                    role = "in_queue"
-                    track_state.clear_direction(tid)
-                else:
-                    role = zone or "other"
-                    track_state.clear_direction(tid)
+                # Role classification — strategy-driven
+                role = self.strategy.classify_role(zone, track_state, tid, cx)
 
                 info.zones_visited.add(zone or "other")
 
                 is_new = info.prev_role is None
                 if is_new:
                     new_track_count += 1
-                    if role in ("entering", "at_entrance"):
+                    if self.strategy.is_entry_role(role):
                         info.observed_entry = True
                         # Cross-feed matching: check if this entrance
                         # correlates with an exit on another camera

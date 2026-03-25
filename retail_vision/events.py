@@ -17,7 +17,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from retail_vision.strategies import UseCaseStrategy
 
 log = logging.getLogger(__name__)
 
@@ -62,42 +65,61 @@ class Event:
     journey_id: str = ""
 
 
-# Convenience sets for role matching
-_QUEUE_ROLES = {"in_queue"}
-_SERVICE_ROLES = {"customer_being_served"}
-_EMPLOYEE_ROLES = {"employee"}
-
-
 class EventEngine:
     """Evaluates event rules against track state each frame.
 
-    Usage:
-        engine = EventEngine.from_yaml("event_rules.yaml")
-        # or:
-        engine = EventEngine.default()
+    Delegates use-case-specific logic to a UseCaseStrategy.
 
+    Usage:
+        from retail_vision.strategies import get_strategy
+        strategy = get_strategy("parking", parking_config)
+        engine = EventEngine.default(strategy=strategy)
         events = engine.evaluate_frame(...)
     """
 
-    def __init__(self, rules: list[EventRule] | None = None):
+    def __init__(self, rules: list[EventRule] | None = None,
+                 strategy: UseCaseStrategy | None = None):
         self.rules = rules or []
-        self._unstaffed_since: float | None = None
+        self._strategy = strategy
+        # Mutable state dict — strategies read/write their own keys here
+        self._state: dict[str, Any] = {}
+
+    @property
+    def strategy(self) -> UseCaseStrategy:
+        if self._strategy is None:
+            from retail_vision.strategies import RetailStrategy
+            self._strategy = RetailStrategy()
+        return self._strategy
+
+    @strategy.setter
+    def strategy(self, s: UseCaseStrategy):
+        self._strategy = s
+
+    # Backward-compat properties so existing code that reads these doesn't break
+    @property
+    def use_case(self) -> str:
+        return self.strategy.name
+
+    @use_case.setter
+    def use_case(self, val: str):
+        # Allow setting for backward compat — but prefer passing strategy
+        pass
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> EventEngine:
+    def from_yaml(cls, path: str | Path, strategy: UseCaseStrategy | None = None) -> EventEngine:
         import yaml
         with open(path) as f:
             d = yaml.safe_load(f)
         rules = [EventRule.from_dict(rd) for rd in d.get("rules", [])]
-        return cls(rules)
+        return cls(rules, strategy=strategy)
 
     @classmethod
-    def default(cls) -> EventEngine:
+    def default(cls, strategy: UseCaseStrategy | None = None) -> EventEngine:
         """Load the built-in default rules matching current pipeline behavior."""
         default_path = Path(__file__).parent / "defaults" / "event_rules.yaml"
         if default_path.exists():
-            return cls.from_yaml(default_path)
-        return cls(_build_default_rules())
+            return cls.from_yaml(default_path, strategy=strategy)
+        return cls(_build_default_rules(), strategy=strategy)
 
     def evaluate_frame(
         self,
@@ -112,196 +134,89 @@ class EventEngine:
     ) -> list[Event]:
         """Evaluate all rules for one frame.
 
-        Args:
-            current_tracks: {tid: {"role": str, "prev_role": str|None, "zone": str|None,
-                                    "is_new": bool, "observed_entry": bool,
-                                    "zones_visited": set, ...}}
-            lost_tracks: {tid: {"zones_visited": set, "last_role": str,
-                                "observed_entry": bool}}
-            frame_has_employee: whether any employee is in frame
-            frame_queue_count: number of people in queue
-
-        Returns:
-            List of emitted Event objects.
+        Delegates to self.strategy for use-case-specific event logic,
+        then evaluates custom YAML rules on top.
         """
         events = []
+        strat = self.strategy
 
-        # Track-appeared and zone-transition rules
+        # Track-appeared and zone-transition
         for tid, tinfo in current_tracks.items():
             role = tinfo["role"]
             prev_role = tinfo.get("prev_role")
 
             if tinfo.get("is_new", False):
-                events.extend(self._eval_appeared(
-                    video_id, tid, role, timestamp_sec, frame_idx, feed_name))
+                for evt_type, details in strat.eval_appeared(
+                        tid, role, timestamp_sec, self._state):
+                    events.append(Event(video_id, tid, evt_type, timestamp_sec,
+                                        frame_idx, details, feed_name))
+                # Custom track_appeared rules
+                for rule in self.rules:
+                    if rule.trigger == "track_appeared":
+                        if not rule.to_zones or role in rule.to_zones:
+                            events.append(Event(video_id, tid, rule.name,
+                                                timestamp_sec, frame_idx,
+                                                {"role": role}, feed_name))
 
             if prev_role is not None and prev_role != role:
-                events.extend(self._eval_transitions(
-                    video_id, tid, prev_role, role, timestamp_sec, frame_idx, feed_name))
+                for evt_type, details in strat.eval_transition(
+                        tid, prev_role, role, timestamp_sec, self._state):
+                    events.append(Event(video_id, tid, evt_type, timestamp_sec,
+                                        frame_idx, details, feed_name))
+                # Custom zone_transition rules
+                for rule in self.rules:
+                    if rule.trigger != "zone_transition":
+                        continue
+                    from_match = not rule.from_zones or prev_role in rule.from_zones
+                    to_match = not rule.to_zones or role in rule.to_zones
+                    if from_match and to_match:
+                        events.append(Event(video_id, tid, rule.name,
+                                            timestamp_sec, frame_idx,
+                                            {"from_role": prev_role, "to_role": role},
+                                            feed_name))
 
-        # Track-lost rules
+        # Track-lost
         for tid, tinfo in lost_tracks.items():
-            events.extend(self._eval_lost(
-                video_id, tid, tinfo, timestamp_sec, frame_idx, feed_name))
-
-        # Unstaffed detection
-        events.extend(self._eval_unstaffed(
-            video_id, frame_has_employee, frame_queue_count,
-            timestamp_sec, frame_idx, feed_name))
-
-        return events
-
-    def _eval_appeared(self, video_id, tid, role, ts, fi, feed_name) -> list[Event]:
-        """Evaluate track_appeared rules."""
-        events = []
-
-        # Built-in: classify as entered_store vs pre_existing
-        is_entry = role in ("entering", "at_entrance")
-        if is_entry:
-            events.append(Event(video_id, tid, "entered_store", ts, fi,
-                                {"role": role}, feed_name))
-        else:
-            events.append(Event(video_id, tid, "pre_existing", ts, fi,
-                                {"role": role}, feed_name))
-
-        # If first seen already in a significant role, emit that too
-        if role in _QUEUE_ROLES:
-            events.append(Event(video_id, tid, "queue_entered", ts, fi,
-                                {"from_role": role}, feed_name))
-        elif role in _SERVICE_ROLES:
-            events.append(Event(video_id, tid, "service_started", ts, fi,
-                                {"from_role": "new"}, feed_name))
-        elif role in _EMPLOYEE_ROLES:
-            events.append(Event(video_id, tid, "employee_arrived", ts, fi, {}, feed_name))
-
-        # Custom track_appeared rules
-        for rule in self.rules:
-            if rule.trigger == "track_appeared":
-                if not rule.to_zones or role in rule.to_zones:
-                    events.append(Event(video_id, tid, rule.name, ts, fi,
-                                        {"role": role}, feed_name))
-
-        return events
-
-    def _eval_transitions(self, video_id, tid, prev_role, role, ts, fi, feed_name) -> list[Event]:
-        """Evaluate zone_transition rules."""
-        events = []
-
-        # Built-in transitions
-        if prev_role not in _QUEUE_ROLES and role in _QUEUE_ROLES:
-            events.append(Event(video_id, tid, "queue_entered", ts, fi,
-                                {"from_role": prev_role}, feed_name))
-        elif prev_role in _QUEUE_ROLES and role not in _QUEUE_ROLES:
-            events.append(Event(video_id, tid, "queue_exited", ts, fi,
-                                {"to_role": role}, feed_name))
-
-        if prev_role not in _SERVICE_ROLES and role in _SERVICE_ROLES:
-            events.append(Event(video_id, tid, "service_started", ts, fi,
-                                {"from_role": prev_role}, feed_name))
-        elif prev_role in _SERVICE_ROLES and role not in _SERVICE_ROLES:
-            events.append(Event(video_id, tid, "service_ended", ts, fi,
-                                {"to_role": role}, feed_name))
-
-        if prev_role not in _EMPLOYEE_ROLES and role in _EMPLOYEE_ROLES:
-            events.append(Event(video_id, tid, "employee_arrived", ts, fi, {}, feed_name))
-        elif prev_role in _EMPLOYEE_ROLES and role not in _EMPLOYEE_ROLES:
-            events.append(Event(video_id, tid, "employee_left", ts, fi,
-                                {"to_role": role}, feed_name))
-
-        # Custom zone_transition rules
-        for rule in self.rules:
-            if rule.trigger != "zone_transition":
-                continue
-            from_match = not rule.from_zones or prev_role in rule.from_zones
-            to_match = not rule.to_zones or role in rule.to_zones
-            if from_match and to_match:
-                # Skip if this duplicates a built-in event name
-                if rule.name not in ("queue_entered", "queue_exited", "service_started",
-                                     "service_ended", "employee_arrived", "employee_left"):
-                    events.append(Event(video_id, tid, rule.name, ts, fi,
-                                        {"from_role": prev_role, "to_role": role}, feed_name))
-
-        return events
-
-    def _eval_lost(self, video_id, tid, tinfo, ts, fi, feed_name) -> list[Event]:
-        """Evaluate track_lost rules."""
-        events = []
-        zones_visited = tinfo.get("zones_visited", set())
-        last_role = tinfo.get("last_role", "unknown")
-        observed_entry = tinfo.get("observed_entry", False)
-
-        # Built-in: service_ended / employee_left on track loss
-        if last_role in _SERVICE_ROLES:
-            events.append(Event(video_id, tid, "service_ended", ts, fi,
-                                {"reason": "track_lost"}, feed_name))
-        if last_role in _EMPLOYEE_ROLES:
-            events.append(Event(video_id, tid, "employee_left", ts, fi,
-                                {"reason": "track_lost"}, feed_name))
-
-        # Built-in: abandonment classification
-        was_customer = zones_visited & {"in_queue", "at_entrance"}
-        was_served = "service" in zones_visited or "customer_being_served" in zones_visited
-        if was_customer and not was_served:
-            if observed_entry:
-                events.append(Event(video_id, tid, "abandoned", ts, fi,
-                                    {"zones_visited": sorted(zones_visited),
-                                     "last_role": last_role}, feed_name))
-            else:
-                events.append(Event(video_id, tid, "unserviced", ts, fi,
-                                    {"zones_visited": sorted(zones_visited),
-                                     "last_role": last_role,
-                                     "reason": "entry_not_observed"}, feed_name))
-
-        # Built-in: exited_store
-        if last_role == "exiting" and observed_entry:
-            events.append(Event(video_id, tid, "exited_store", ts, fi,
-                                {"last_role": last_role}, feed_name))
-
-        # Custom track_lost rules
-        for rule in self.rules:
-            if rule.trigger != "track_lost":
-                continue
-            conds = rule.conditions
-            match = True
-            if "visited_any" in conds:
-                if not (zones_visited & set(conds["visited_any"])):
+            for evt_type, details in strat.eval_lost(
+                    tid, tinfo, timestamp_sec, self._state):
+                events.append(Event(video_id, tid, evt_type, timestamp_sec,
+                                    frame_idx, details, feed_name))
+            # Custom track_lost rules
+            zones_visited = tinfo.get("zones_visited", set())
+            last_role = tinfo.get("last_role", "unknown")
+            for rule in self.rules:
+                if rule.trigger != "track_lost":
+                    continue
+                conds = rule.conditions
+                match = True
+                if "visited_any" in conds:
+                    if not (zones_visited & set(conds["visited_any"])):
+                        match = False
+                if "not_visited" in conds:
+                    if zones_visited & set(conds["not_visited"]):
+                        match = False
+                if conds.get("observed_entry") and not tinfo.get("observed_entry", False):
                     match = False
-            if "not_visited" in conds:
-                if zones_visited & set(conds["not_visited"]):
-                    match = False
-            if conds.get("observed_entry") and not observed_entry:
-                match = False
-            if match and rule.name not in ("abandoned", "unserviced", "exited_store"):
-                events.append(Event(video_id, tid, rule.name, ts, fi,
-                                    {"zones_visited": sorted(zones_visited),
-                                     "last_role": last_role}, feed_name))
+                if match:
+                    events.append(Event(video_id, tid, rule.name,
+                                        timestamp_sec, frame_idx,
+                                        {"zones_visited": sorted(zones_visited),
+                                         "last_role": last_role}, feed_name))
 
-        return events
+        # Frame-level events (unstaffed detection, dwell tracking, etc.)
+        for item in strat.eval_frame_level(
+                current_tracks, timestamp_sec, frame_has_employee,
+                frame_queue_count, self._state):
+            evt_type, tid, details = item
+            events.append(Event(video_id, tid, evt_type, timestamp_sec,
+                                frame_idx, details, feed_name))
 
-    def _eval_unstaffed(self, video_id, has_employee, queue_count, ts, fi, feed_name) -> list[Event]:
-        """Detect counter-unstaffed-while-waiting periods."""
-        events = []
-        if not has_employee and queue_count > 0:
-            if self._unstaffed_since is None:
-                self._unstaffed_since = ts
-                events.append(Event(video_id, 0, "counter_unstaffed_start", ts, fi,
-                                    {"queue_length": queue_count}, feed_name))
-        elif has_employee and self._unstaffed_since is not None:
-            dur = round(ts - self._unstaffed_since, 3)
-            events.append(Event(video_id, 0, "counter_unstaffed_end", ts, fi,
-                                {"duration_sec": dur, "queue_length": queue_count}, feed_name))
-            self._unstaffed_since = None
-        elif queue_count == 0 and self._unstaffed_since is not None:
-            dur = round(ts - self._unstaffed_since, 3)
-            events.append(Event(video_id, 0, "counter_unstaffed_end", ts, fi,
-                                {"duration_sec": dur, "queue_length": 0,
-                                 "reason": "queue_emptied"}, feed_name))
-            self._unstaffed_since = None
         return events
 
     def reset(self):
         """Reset stateful rule state (between videos/segments)."""
-        self._unstaffed_since = None
+        self.strategy.reset_state(self._state)
+        self._state.clear()
 
 
 def _build_default_rules() -> list[EventRule]:
